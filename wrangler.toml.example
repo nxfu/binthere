@@ -1,0 +1,61 @@
+# wrangler.toml.example — template for binthere's single Cloudflare Worker, which
+# serves the static frontend (Workers Static Assets), the zero-knowledge paste API,
+# the BurnPaste Durable Object (strict burn-after-read), KV storage, and native rate
+# limiting. One deploy unit, one config — see SPEC.md / SECURITY.md / ARCHITECTURE.md.
+#
+# Setup:
+#   1. cp wrangler.toml.example wrangler.toml
+#   2. npm run kv:create          # wrangler kv namespace create PASTES (+ --preview)
+#   3. paste the printed ids into the [[kv_namespaces]] block below
+#   4. npm run deploy
+#
+# The real wrangler.toml is gitignored: it holds your account-specific KV namespace
+# ids, so it stays local and out of the public repo. This .example is the committed
+# template. `wrangler dev` runs with the placeholder ids (KV is emulated locally).
+
+# Worker script name is "binthere" (→ deploy URL binthere.<subdomain>.workers.dev);
+# the KV namespace keeps the "PASTES" name.
+name = "binthere"
+main = "src/index.js"
+compatibility_date = "2025-10-11"
+
+# ── Static assets ────────────────────────────────────────────────────────────
+# The frontend lives in public/. The Worker runs first only for /api/*; every
+# other path is served from static assets, with a single-page-application
+# fallback so /p/<id> serves index.html (the client reads the id + fragment key).
+[assets]
+directory = "./public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = [ "/api/*" ]
+
+# ── KV: normal (non-burn) pastes, immutable, native TTL expiry ───────────────
+# Create with:  wrangler kv namespace create PASTES
+# then paste the id below (and a preview_id for local dev).
+[[kv_namespaces]]
+binding = "PASTES"
+id = "<your-kv-namespace-id>"
+preview_id = "<your-kv-preview-namespace-id>"
+
+# ── Durable Object: burn-after-read pastes (atomic single-consumer) ──────────
+[[durable_objects.bindings]]
+name = "BURN"
+class_name = "BurnPaste"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = [ "BurnPaste" ]
+
+# ── Native rate limiting: paste creation, keyed by client IP ─────────────────
+# Abuse mitigation, not authentication; the code fails open if unavailable.
+[[ratelimits]]
+name = "CREATE_RL"
+namespace_id = "1001"
+
+  [ratelimits.simple]
+  limit = 30
+  period = 60
+
+# ── Observability ────────────────────────────────────────────────────────────
+[observability]
+enabled = true

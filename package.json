@@ -1,0 +1,28 @@
+{
+  "name": "binthere",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A zero-knowledge, end-to-end encrypted pastebin. Content is encrypted/decrypted in the browser (AES-256-GCM); the server only ever stores ciphertext.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "kv:create": "wrangler kv namespace create PASTES && wrangler kv namespace create PASTES --preview"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.18.5",
+    "@eslint/js": "^9.0.0",
+    "@vitest/coverage-istanbul": "^4.1.10",
+    "eslint": "^9.0.0",
+    "globals": "^15.0.0",
+    "vitest": "^4.1.10",
+    "wrangler": "^4.42.0"
+  }
+}

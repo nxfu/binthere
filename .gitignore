@@ -1,0 +1,45 @@
+# Dependencies & build output
+node_modules/
+.wrangler/
+dist/
+coverage/
+
+# Logs
+*.log
+
+# Secrets / local dev config (never commit)
+.dev.vars
+.env
+.env.*
+
+# Deploy config holds account-specific KV namespace ids — kept local.
+# Commit wrangler.toml.example (the placeholder template) instead.
+wrangler.toml
+
+# OS junk
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Editor / IDE / agent-local settings
+.idea/
+.vscode/
+.claude/
+*.swp
+*.swo
+*~
+
+# Internal / working docs — kept locally, not part of the public repo.
+TODO.md
+CLAUDE.md
+AGENTS.md
+DESIGN.md
+
+# Reference-only sibling project (its own repo); not part of binthere.
+nopebin/
+
+# Audit workspace (analysis only, never commit)
+.analysis/
+.progress/
+PREP.md
