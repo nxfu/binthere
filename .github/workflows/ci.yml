@@ -1,0 +1,26 @@
+# CI for binthere — runs the full vitest suite (crypto vectors, format, ids,
+# markdown XSS, highlight, burn concurrency) in the real workerd runtime via
+# @cloudflare/vitest-pool-workers. Keep this green: every push and PR must pass.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      # Confirm the pinned crypto vectors still reproduce byte-for-byte (SPEC.md §11):
+      # regenerate and diff against the committed test/vectors.expected.txt.
+      - run: node test/genvectors.mjs | diff -u test/vectors.expected.txt -
+      - run: npm test
