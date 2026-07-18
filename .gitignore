@@ -43,3 +43,7 @@ nopebin/
 .analysis/
 .progress/
 PREP.md
+
+.dev.vars*
+!.dev.vars.example
+!.env.example
