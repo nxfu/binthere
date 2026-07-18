@@ -50,7 +50,7 @@ country/edge-only behavior won't show locally.
 | **Backend** | `src/index.js` (routing/limits/errors), `src/burn-do.js` (DO), `src/lib/*` (ids, store, ratelimit) |
 | **Frontend** | `public/index.html`, `public/css/styles.css`, `public/js/{api,ui,app,markdown}.js` |
 | **CSP** | `public/_headers` |
-| **Config** | `wrangler.toml.example` (assets, KV `PASTES`, `BurnPaste` DO + migration, `CREATE_RL`) — copy to the gitignored `wrangler.toml` and fill in KV ids |
+| **Config** | `wrangler.toml` (assets, KV `PASTES`, `BurnPaste` DO + migration, `CREATE_RL`) — tracked in git; for your own deployment replace the KV ids (pristine template: `wrangler.toml.example`) |
 | **Tests** | `test/*.test.js` (+ `test/genvectors.mjs` vector regenerator, `test/vectors.expected.txt` pinned output, `tools/verify-vectors.py` Python cross-check) |
 | **CI** | `.github/workflows/ci.yml` — lint + byte-for-byte vector diff + full suite on every push/PR |
 
@@ -96,7 +96,8 @@ Add or update tests alongside behavior changes. New rendering paths and any cryp
 no automated coverage — there is no browser test harness — so changes there need a manual pass
 in `wrangler dev`. Backend, crypto, and the shared pure modules are covered by the suites above.
 
-> **Windows note:** after the suite passes you may see `vitest-pool-worker: Unable to remove
+> [!NOTE]
+> **Windows:** after the suite passes you may see `vitest-pool-worker: Unable to remove
 > temporary directory: EBUSY …` lines at teardown. This is cosmetic miniflare temp-dir cleanup
 > noise on Windows — the tests have already passed; it does not indicate a failure.
 

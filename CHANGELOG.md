@@ -56,14 +56,16 @@ stores nothing but ciphertext and non-secret metadata.
   `tokenize()` is proven lossless in `test/highlight.test.js`. A **safe** Markdown subset
   (no raw HTML, `href` scheme allowlist) renders via DOM construction only.
 - Copy link, QR code (self-hosted MIT `qrcode-generator`, rendered as a `data:` image),
-  delete link, status pills (kind + one-time view).
+  delete link, status pills (kind + one-time view), and a live **"Deletes in" countdown** on
+  the reveal screen (derived from non-secret metadata; the server-side expiry stays
+  authoritative).
 
 ### Design — the "Iron Gall" system
 
 - The interface is treated as a piece of security printing:
   archival inks, engraved 1px hairlines, tight print-like radii (3px controls / 6px cards), a
-  self-drawing guilloché seal on the success screen, a guilloché rosette watermark, stamp-like
-  status pills, and banknote microtext in the footer.
+  self-drawing guilloché seal on the success screen, a guilloché rosette watermark, and
+  stamp-like status pills.
 - Hierarchy is carried by **one owned hue** — iron-gall blue — with **wax-seal red reserved
   strictly for destruction semantics** (the one-time / "now deleted" stamp and delete actions).
 - Two themes, one token contract: light "Archive" on `:root`, dark "Plate" on `html.dark`
