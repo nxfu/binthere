@@ -12,10 +12,6 @@ coverage/
 .env
 .env.*
 
-# Deploy config holds account-specific KV namespace ids — kept local.
-# Commit wrangler.toml.example (the placeholder template) instead.
-wrangler.toml
-
 # OS junk
 .DS_Store
 Thumbs.db

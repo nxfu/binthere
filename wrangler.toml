@@ -1,0 +1,51 @@
+# wrangler.toml — binthere: a single Cloudflare Worker that serves the static
+# frontend (Workers Static Assets), the zero-knowledge paste API, the BurnPaste
+# Durable Object (strict burn-after-read), KV storage, and native rate limiting.
+# One deploy unit, one config — see SPEC.md / SECURITY.md / ARCHITECTURE.md.
+
+# Worker script name is "binthere" (→ deploy URL binthere.<subdomain>.workers.dev);
+# the KV namespace keeps the "PASTES" name.
+name = "binthere"
+main = "src/index.js"
+compatibility_date = "2025-10-11"
+
+# ── Static assets ────────────────────────────────────────────────────────────
+# The frontend lives in public/. The Worker runs first only for /api/*; every
+# other path is served from static assets, with a single-page-application
+# fallback so /p/<id> serves index.html (the client reads the id + fragment key).
+[assets]
+directory = "./public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = [ "/api/*" ]
+
+# ── KV: normal (non-burn) pastes, immutable, native TTL expiry ───────────────
+# Create with:  wrangler kv namespace create PASTES
+# then paste the id below (and a preview_id for local dev).
+[[kv_namespaces]]
+binding = "PASTES"
+id = "fd20757b64cf4491a67a96b36263613e"
+preview_id = "3cea39cba48443d2babc78f1af07f39f"
+
+# ── Durable Object: burn-after-read pastes (atomic single-consumer) ──────────
+[[durable_objects.bindings]]
+name = "BURN"
+class_name = "BurnPaste"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = [ "BurnPaste" ]
+
+# ── Native rate limiting: paste creation, keyed by client IP ─────────────────
+# Abuse mitigation, not authentication; the code fails open if unavailable.
+[[ratelimits]]
+name = "CREATE_RL"
+namespace_id = "1001"
+
+  [ratelimits.simple]
+  limit = 30
+  period = 60
+
+# ── Observability ────────────────────────────────────────────────────────────
+[observability]
+enabled = true
