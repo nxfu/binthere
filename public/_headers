@@ -1,0 +1,17 @@
+# Security headers applied to every static-asset response.
+# The CSP is the core XSS defense: in a zero-knowledge app an XSS equals key
+# exfiltration (JS can read location.hash), so the policy is strict — first-party
+# only, no inline, no eval, no third parties. See SECURITY.md §4.
+/*
+  Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: no-referrer
+  Permissions-Policy: browsing-topics=(), interest-cohort=()
+  Cross-Origin-Resource-Policy: same-origin
+  Cross-Origin-Opener-Policy: same-origin
+  Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+
+# Self-hosted fonts: long-lived immutable cache.
+/fonts/*
+  Cache-Control: public, max-age=31536000, immutable

@@ -1,0 +1,3 @@
+# Pastes are secret, single-use, or ephemeral — keep them out of search indexes.
+User-agent: *
+Disallow: /

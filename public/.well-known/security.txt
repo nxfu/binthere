@@ -1,0 +1,6 @@
+# binthere security contact — see /SECURITY.md for the full policy.
+Contact: mailto:nxfu@proton.me
+Preferred-Languages: en
+Canonical: https://binthere.nxfu.workers.dev/.well-known/security.txt
+Policy: https://github.com/nxfu/binthere/blob/main/SECURITY.md
+Expires: 2027-01-01T00:00:00.000Z
