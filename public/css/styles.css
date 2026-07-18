@@ -180,7 +180,7 @@ html.dark .theme-toggle .ico-moon { display: block; }
 .input { background: var(--sheet); border: 1px solid var(--rule-2); border-radius: 3px; padding: .5rem .7rem;
   color: var(--ink); font-family: var(--mono); font-size: .8125rem; transition: border-color .14s ease, box-shadow .14s ease; }
 .input::placeholder { color: var(--ink-3); }
-.input:focus, .input:focus-visible { outline: none; border-color: var(--ring); box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--ring); }
+.input:focus-visible { outline: none; border-color: var(--ring); box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--ring); }
 
 .pw { display: inline-flex; align-items: stretch; }
 .pw .input { border-top-right-radius: 0; border-bottom-right-radius: 0; min-width: 200px; }
@@ -230,7 +230,7 @@ html.dark .theme-toggle .ico-moon { display: block; }
 
 /* ── lock toggle (optional password) ─────────────────────────────────────── */
 .lock { display: inline-flex; align-items: center; gap: .4rem; font-family: var(--mono); font-size: .6875rem; letter-spacing: .06em;
-  color: var(--ink-2); padding: .42rem .68rem; border: 1px solid var(--rule-2); border-radius: 3px; background: transparent;
+  color: var(--ink-2); padding: .42rem .68rem; min-height: 40px; border: 1px solid var(--rule-2); border-radius: 3px; background: transparent;
   cursor: pointer; transition: color .14s ease, border-color .14s ease, background-color .14s ease; }
 .lock:hover { color: var(--ink); border-color: var(--rule-3); background: var(--sheet-2); }
 .lock:active { background: var(--sheet); }
@@ -252,6 +252,7 @@ html.dark .theme-toggle .ico-moon { display: block; }
   background: rgba(4, 8, 12, .62); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); animation: scrimIn .2s var(--ease); }
 @keyframes scrimIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes modalRise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.modal:focus { outline: none; }
 .modal { width: 100%; max-width: 420px; background: var(--sheet); border: 1px solid var(--rule-2); border-radius: 6px; padding: 1.5rem;
   box-shadow: var(--shadow-overlay); animation: modalRise .2s var(--ease); }
 .modal-title { font-family: var(--serif); font-size: 1.375rem; font-weight: 500; letter-spacing: -.01em; }
@@ -346,7 +347,7 @@ html.dark .theme-toggle .ico-moon { display: block; }
 .status-timer { display: inline-flex; align-items: baseline; gap: .7rem; padding: .7rem 1.1rem; margin-top: .5rem;
   border: 1px solid color-mix(in oklab, var(--rule-2), var(--seal) 40%); border-radius: 3px;
   background: color-mix(in oklab, var(--paper), var(--seal) 5%); }
-.status-timer-label { font-size: .8rem; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
+.status-timer-label { position: relative; top: 2px; font-size: .8rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
 .status-timer-clock { font-size: .8rem; font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: .04em; color: var(--seal); }
 .status-timer.ending .status-timer-clock { animation: timerPulse 1s var(--ease) infinite; }
 @keyframes timerPulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }

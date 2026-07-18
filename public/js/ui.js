@@ -10,6 +10,10 @@ export function showView(name) {
     const el = document.getElementById(id);
     if (el) el.hidden = id !== `view-${name}`;
   }
+  // Footer nav links belong to the landing page only; hide them elsewhere to
+  // reduce clutter on paste/success/password/status views.
+  const footLinks = document.getElementById('foot-links');
+  if (footLinks) footLinks.hidden = name !== 'create';
 }
 
 /** Transient bottom toast. */

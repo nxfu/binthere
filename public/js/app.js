@@ -145,7 +145,10 @@ function openPasswordModal(onSubmit) {
   mmsg.hidden = true;
   input.value = '';
   scrim.hidden = false;
-  input.focus();
+  // Focus the dialog (not the input) so the modal is reachable and the focus
+  // trap works, without painting a focus ring on the field before the user
+  // has clicked or tabbed into it.
+  $('#pw-modal-dialog').focus();
 }
 
 function showSuccess({ id, deletetoken, url, isBurn }) {
@@ -153,7 +156,7 @@ function showSuccess({ id, deletetoken, url, isBurn }) {
   $('#paste-url').textContent = url;
   if (isBurn) {
     $('#success-note').textContent =
-      'This note deletes itself the moment it is opened, so send the link to just one person.';
+      'Anyone with this link can read the note once.';
   }
   renderQr(url);
 
@@ -245,7 +248,7 @@ async function initBurnView(id, fragment) {
     promptPasswordBurn(id, fragment, head);
   } else {
     // No password: an explicit "reveal" click is the consent to burn it.
-    status('This note can be opened only once.', false, { reveal: true });
+    status('This note can only be viewed once.', false, { reveal: true });
     startExpiryTimer(head.meta);
     const revealBtn = $('#reveal-burn');
     revealBtn.disabled = false;

@@ -103,13 +103,10 @@
             <!-- ── CREATE ─────────────────────────────────────────────────────────── -->
             <section id="view-create" hidden>
                 <div class="head reveal d1">
-                    <p class="eyebrow">zero-knowledge · one-time</p>
+                    <p class="eyebrow">private by design</p>
                     <h1 class="title">Say it once. <span class="title-em">Sealed.</span></h1>
                     <p class="subtitle">
-                        Write a note, get a link. It's end-to-end encrypted on
-                        your device before it leaves — we can't read it and
-                        store nothing readable. Every note opens once, then
-                        self-destructs within 24 hours.
+                        Your note stays yours. Read once, then self-destructs.
                     </p>
                 </div>
 
@@ -117,7 +114,7 @@
                     <textarea
                         id="editor"
                         class="editor"
-                        placeholder="Write or paste your note…  it's encrypted before it ever leaves this page."
+                        placeholder="Write or paste your note… Only the recipient with the link can decrypt it."
                         aria-label="Note content"
                         spellcheck="false"
                     ></textarea>
@@ -216,6 +213,8 @@
                     role="dialog"
                     aria-modal="true"
                     aria-labelledby="pw-modal-title"
+                    tabindex="-1"
+                    id="pw-modal-dialog"
                 >
                     <h2 class="modal-title" id="pw-modal-title">
                         Paste password
@@ -229,7 +228,11 @@
                             id="modal-password"
                             class="input"
                             placeholder="Enter a password"
-                            autocomplete="new-password"
+                            autocomplete="off"
+                            data-bwignore
+                            data-lpignore="true"
+                            data-1p-ignore
+                            data-form-type="other"
                             aria-label="Password"
                         />
                         <button
@@ -274,8 +277,8 @@
             <!-- ── SUCCESS ────────────────────────────────────────────────────────── -->
             <section id="view-success" hidden>
                 <div class="head reveal d1">
-                    <p class="eyebrow">link ready</p>
-                    <h1 class="title">Your note is ready</h1>
+                    <p class="eyebrow">sealed</p>
+                    <h1 class="title">Share your link</h1>
                     <p class="subtitle" id="success-note">
                         Send this to the one person who should read it — it
                         self-destructs the moment it's opened. The key that
@@ -307,7 +310,7 @@
                                 </g>
                             </svg>
                             <span class="seal-label mono"
-                                >sealed on your device · opens once</span
+                                >scan to open · one-time read</span
                             >
                         </div>
                         <div class="card qr">
@@ -355,6 +358,10 @@
                             class="input"
                             placeholder="Enter password"
                             autocomplete="off"
+                            data-bwignore
+                            data-lpignore="true"
+                            data-1p-ignore
+                            data-form-type="other"
                             aria-label="Password"
                         />
                         <button
@@ -419,7 +426,7 @@
                     <p class="msg" id="status-msg" role="status">loading…</p>
                     <div class="btn-row center" id="status-actions" hidden>
                         <button type="button" class="cta" id="reveal-burn">
-                            Reveal — this can only be shown once
+                            Reveal note
                         </button>
                     </div>
                     <p
@@ -430,7 +437,7 @@
                         hidden
                     >
                         <span class="status-timer-label"
-                            >self-destructs in</span
+                            >Deletes in</span
                         >
                         <span
                             class="status-timer-clock"
@@ -448,10 +455,10 @@
 
             <footer class="foot reveal d4">
                 <p class="foot-crypto mono" aria-label="Cryptography">
-                    AES-256-GCM · HKDF-SHA256 · key rides in the URL
-                    <span class="foot-frag">#fragment</span>, never sent
+                    AES-256-GCM · HKDF-SHA256 · Key stays in the URL
+                    <span class="foot-frag">#fragment</span>
                 </p>
-                <p class="foot-links">
+                <p class="foot-links" id="foot-links">
                     <a
                         href="https://github.com/nxfu/binthere"
                         rel="noopener"
@@ -462,13 +469,13 @@
                         href="https://github.com/nxfu/binthere/blob/main/SECURITY.md"
                         rel="noopener"
                         target="_blank"
-                        >Threat model</a
+                        >Threat Model</a
                     >
                     <a href="/.well-known/security.txt" rel="noopener"
-                        >security.txt</a
+                        >Security</a
                     >
                     <a href="https://nxfu.pages.dev" rel="noopener"
-                        >nxfu.pages.dev</a
+                        >Developer</a
                     >
                 </p>
             </footer>
