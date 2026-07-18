@@ -19,6 +19,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: cp wrangler.toml.example wrangler.toml
       - run: npm run lint
       # Confirm the pinned crypto vectors still reproduce byte-for-byte (SPEC.md §11):
       # regenerate and diff against the committed test/vectors.expected.txt.
