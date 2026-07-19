@@ -1,25 +1,27 @@
-# binthere
-
-[![CI](https://github.com/nxfu/binthere/actions/workflows/ci.yml/badge.svg)](https://github.com/nxfu/binthere/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
-[![Node](https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white)](./.nvmrc)
-[![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)](https://developers.cloudflare.com/workers/)
-
+# bin*there*
 ![binthere — say it once, sealed. End-to-end encrypted notes that disappear.](public/opengraph.png)
 
-A zero-knowledge, end-to-end encrypted pastebin. Your browser encrypts everything with
-AES-256-GCM **before** it leaves your device; the server only ever stores ciphertext. The
-decryption key lives in the URL fragment (`#…`) and never reaches the server.
+**Project**
+
+<a href="https://github.com/nxfu/binthere/issues"><img alt="Issues" height="28" src="https://m3-markdown-badges.vercel.app/issues/6/2/nxfu/binthere"></a>
+<a href="https://github.com/nxfu/binthere/stargazers"><img alt="Stars" height="28" src="https://m3-markdown-badges.vercel.app/stars/6/2/nxfu/binthere"></a>
+<a href="./LICENSE"><img alt="MIT License" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/LicenceMIT/licencemit3.svg"></a>
+
+**Stack**
+
+<a href="./.nvmrc"><img alt="Node.js" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/NodeJS/nodejs3.svg"></a>
+<img alt="JavaScript" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/Javascript/javascript3.svg">
+<img alt="HTML" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/HTML/html3.svg">
+<img alt="CSS" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/CSS/css3.svg">
+<a href="./eslint.config.js"><img alt="ESLint" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/ESLint/eslint3.svg"></a>
+
+A zero-knowledge, end-to-end encrypted pastebin. Write a note, get a link, share it — and the
+note self-destructs the moment it's read. Your browser encrypts everything with AES-256-GCM
+**before** it leaves your device, so the server only ever holds ciphertext it can't read. Think
+of it as a self-destructing envelope for text: secrets, credentials, a private message, a
+snippet of code.
 
 **Live:** <https://binthere.nxfu.workers.dev>
-
-```
-you type ──▶ browser encrypts (AES-256-GCM) ──▶ Worker stores ciphertext only
-                     │                                      │
-              key stays in the URL #fragment          KV or Durable Object
-                     │                                      │
-recipient opens link ─▶ browser fetches ciphertext ─▶ browser decrypts ─▶ plaintext
-```
 
 binthere is a clean-room rebuild inspired by [PrivateBin](https://privatebin.info)'s
 zero-knowledge model — modern Web Crypto, a strict CSP, atomic burn-after-read, and a real
@@ -29,6 +31,7 @@ server to maintain.
 
 ## Contents
 
+- [How it works](#how-it-works)
 - [Features](#features)
 - [How it compares](#how-it-compares)
 - [Quick start](#quick-start)
@@ -41,6 +44,45 @@ server to maintain.
 - [Contributing](#contributing)
 - [Acknowledgements](#acknowledgements)
 - [License](#license)
+
+## How it works
+
+The whole design rests on one trick: **where the decryption key lives**. It travels in the
+URL fragment — the part after `#` — which browsers never send to any server.
+
+```
+you type ──▶ browser encrypts (AES-256-GCM) ──▶ Worker stores ciphertext only
+                     │                                      │
+              key stays in the URL #fragment          KV or Durable Object
+                     │                                      │
+recipient opens link ─▶ browser fetches ciphertext ─▶ browser decrypts ─▶ plaintext
+```
+
+1. **You write a note.** Your browser generates a random 256-bit key and encrypts the note
+   locally with AES-256-GCM — before any network request is made.
+2. **Only ciphertext is uploaded.** The key is never sent; it's appended to your link after
+   `#`. The server stores an opaque blob it has no way to read.
+3. **You share the link.** It carries both the note's id and the key
+   (`…/p/<id>#<key>`) — the link *is* the capability to read the note. Optionally, add a
+   password: it's mixed into the key derivation, so neither the link nor the password alone
+   can decrypt.
+4. **The recipient opens it.** Their browser fetches the ciphertext, reads the key from the
+   fragment, and decrypts locally. The server never sees plaintext at any point.
+
+Every note is **one-time view**: the first reader atomically consumes it (exactly one winner,
+even under simultaneous clicks — a Durable Object guarantees it), and everyone after gets
+`410 Gone`. Unread notes self-delete after 24 hours regardless.
+
+What this means in practice:
+
+- **No accounts, no tracking.** Paste, share, done. There is nothing to sign up for and no
+  analytics watching you do it.
+- **Nobody can recover a lost link.** Not even the operator — there is no key to look up and
+  no index of pastes. The link is the only copy of the key, by design.
+- **Honest limits.** The server still sees IPs, timings, and ciphertext sizes (it's private,
+  not anonymous), and like all in-browser crypto it trusts the code the site serves — the
+  full threat model is in [`SECURITY.md`](./SECURITY.md) and summarized under
+  [Limitations](#limitations).
 
 ## Features
 
