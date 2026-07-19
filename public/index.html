@@ -37,9 +37,42 @@
         <!-- CSP is set as a response header (public/_headers). Scripts/styles/fonts are first-party only. -->
         <script defer src="/js/qrcode.js"></script>
         <script defer src="/js/theme.js"></script>
+        <script defer src="/js/announce.js"></script>
         <script type="module" src="/js/app.js"></script>
     </head>
     <body>
+        <!-- Slim announcement bar. Hidden by default so returning/dismissed
+       visitors never see a flash; announce.js reveals it only when the
+       dismissal flag is absent (mirrors theme-init's localStorage pattern). -->
+        <aside class="announce" id="announce" aria-label="Announcement" hidden>
+            <a
+                class="announce-link"
+                href="https://nxfu.pages.dev/blogs/because-i-dont-trust-pastebins-either"
+                rel="noopener"
+                target="_blank"
+            >
+                <span class="announce-tag">New</span>
+                <span class="announce-txt"
+                    >Why I don’t trust pastebins either</span
+                >
+                <span class="announce-arrow" aria-hidden="true">→</span>
+            </a>
+            <button
+                type="button"
+                class="announce-close"
+                id="announce-close"
+                aria-label="Dismiss announcement"
+            >
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path
+                        d="M6 6l12 12M18 6L6 18"
+                        stroke="currentColor"
+                        stroke-width="1.75"
+                        stroke-linecap="round"
+                    />
+                </svg>
+            </button>
+        </aside>
         <!-- Guilloché watermark — security-print ambience; pure ornament. -->
         <svg class="watermark" viewBox="0 0 64 64" fill="none" aria-hidden="true">
             <g stroke="currentColor" stroke-width="0.5">

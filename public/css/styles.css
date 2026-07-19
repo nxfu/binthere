@@ -117,6 +117,26 @@ a { color: var(--ink); text-decoration: none; transition: color .14s ease; }
   color: var(--ink); opacity: var(--wm-opacity); pointer-events: none; user-select: none; }
 @media (max-width: 768px) { .watermark { width: 280px; height: 280px; top: -90px; right: -110px; } }
 
+/* ── announcement bar (slim, dismissible; see announce.js) ───────────────── */
+.announce { position: relative; z-index: 11; display: flex; align-items: center; justify-content: center; gap: .5rem;
+  width: 100%; padding: .5rem 2.6rem; background: var(--sheet-2); border-bottom: 1px solid var(--rule);
+  font-size: .8rem; }
+.announce-link { display: inline-flex; align-items: center; gap: .55rem; color: var(--ink-2); min-width: 0;
+  transition: color .14s ease; }
+.announce-link:hover { color: var(--ink); }
+.announce-tag { flex: none; font-family: var(--mono); font-size: .62rem; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--accent-fg); background: var(--accent-fill); padding: .12rem .4rem; border-radius: 3px; }
+.announce-txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.announce-arrow { flex: none; color: var(--accent); transition: transform .2s ease; }
+.announce-link:hover .announce-arrow { transform: translateX(2px); }
+.announce-close { position: absolute; top: 50%; right: .7rem; transform: translateY(-50%);
+  display: inline-grid; place-items: center; width: 26px; height: 26px; padding: 0;
+  background: transparent; border: 0; border-radius: 3px; color: var(--ink-3); cursor: pointer;
+  transition: color .14s ease, background-color .14s ease; }
+.announce-close:hover { color: var(--ink); background: var(--rule); }
+.announce-close svg { width: 15px; height: 15px; }
+@media (max-width: 768px) { .announce { padding: .5rem 2.4rem; font-size: .74rem; } }
+
 /* ── topbar ──────────────────────────────────────────────────────────────── */
 .topbar { position: relative; z-index: 10; display: flex; align-items: center; justify-content: space-between; gap: 1rem;
   width: 100%; padding: 1.6rem 2.2rem .4rem; }
