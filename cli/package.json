@@ -1,0 +1,44 @@
+{
+  "name": "binthere",
+  "version": "0.1.0",
+  "description": "CLI for binthere — a zero-knowledge, end-to-end encrypted pastebin. Encrypts locally with AES-256-GCM; the key rides in the URL fragment and never reaches the server.",
+  "license": "MIT",
+  "author": "nxfu",
+  "type": "module",
+  "bin": {
+    "binthere": "bin/binthere.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "vendor/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "sync": "node scripts/sync-shared.mjs",
+    "prepack": "node scripts/sync-shared.mjs --check && vitest run"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nxfu/binthere.git",
+    "directory": "cli"
+  },
+  "homepage": "https://binthere.gaury.dev",
+  "bugs": {
+    "url": "https://github.com/nxfu/binthere/issues"
+  },
+  "keywords": [
+    "pastebin",
+    "encryption",
+    "zero-knowledge",
+    "end-to-end",
+    "aes-256-gcm",
+    "burn-after-read",
+    "cli"
+  ]
+}
