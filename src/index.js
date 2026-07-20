@@ -6,9 +6,9 @@
 // it stores opaque ciphertext + non-secret metadata and enforces size, rate, and
 // burn-after-read semantics. See SPEC.md §10 for the API contract.
 
-import { validatePaste, FormatError } from '../public/js/format.js';
+import { validatePaste, FormatError, MAX_CT_B64 } from '../public/js/format.js';
 import { genId, parseId, genDeleteToken, hashToken, verifyToken } from './lib/ids.js';
-import { ttlSeconds, MAX_BODY, kvExists, kvPut, kvGet, kvDelete, burnStub } from './lib/store.js';
+import { ttlSeconds, MAX_BODY, MAX_BURN_RECORD, kvExists, kvPut, kvGet, kvDelete, burnStub } from './lib/store.js';
 import { allowCreate } from './lib/ratelimit.js';
 
 export { BurnPaste } from './burn-do.js';
@@ -20,8 +20,10 @@ const JSON_HEADERS = {
   'x-content-type-options': 'nosniff',
 };
 
-const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: JSON_HEADERS });
-const err = (message, status) => json({ error: message }, status);
+const json = (obj, status = 200, extraHeaders) => new Response(JSON.stringify(obj), {
+  status, headers: extraHeaders ? { ...JSON_HEADERS, ...extraHeaders } : JSON_HEADERS,
+});
+const err = (message, status, extraHeaders) => json({ error: message }, status, extraHeaders);
 
 export default {
   async fetch(request, env, ctx) {
@@ -33,8 +35,21 @@ export default {
       return env.ASSETS ? env.ASSETS.fetch(request) : new Response('Not found', { status: 404 });
     }
 
-    if (pathname === '/api/paste' && request.method === 'POST') {
-      return createPaste(request, env, ctx);
+    if (pathname === '/api/paste') {
+      if (request.method === 'POST') return createPaste(request, env, ctx);
+      return err('Method not allowed', 405, { allow: 'POST' });
+    }
+
+    const mc = pathname.match(/^\/api\/paste\/([^/]+)\/consume$/);
+    if (mc) {
+      let id;
+      try {
+        id = decodeURIComponent(mc[1]);
+      } catch {
+        return err('Document does not exist, has expired or has been deleted.', 404);
+      }
+      if (request.method !== 'POST') return err('Method not allowed', 405, { allow: 'POST' });
+      return consumePaste(id, request, env);
     }
 
     const m = pathname.match(/^\/api\/paste\/([^/]+)$/);
@@ -49,7 +64,7 @@ export default {
       }
       if (request.method === 'GET') return readPaste(id, env, url.searchParams.get('meta') === '1');
       if (request.method === 'DELETE') return deletePaste(id, request, env);
-      return err('Method not allowed', 405);
+      return err('Method not allowed', 405, { allow: 'GET, DELETE' });
     }
 
     return err('Not found', 404);
@@ -57,6 +72,15 @@ export default {
 };
 
 async function createPaste(request, env, _ctx) {
+  // Requiring a real JSON media type forces a CORS preflight for cross-origin
+  // browser requests: a hostile page can no longer spend a visitor's creation
+  // quota (or create storage objects from their network) with a "simple"
+  // text/plain POST. Zero cost to both official clients — they already send it.
+  const contentType = (request.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+  if (contentType !== 'application/json') {
+    return err('Content-Type must be application/json.', 415);
+  }
+
   if (!(await allowCreate(env, request))) {
     return err('Rate limit exceeded. Try again shortly.', 429);
   }
@@ -73,6 +97,13 @@ async function createPaste(request, env, _ctx) {
     parsed = JSON.parse(new TextDecoder().decode(buf));
   } catch {
     return err('Invalid JSON body.', 400);
+  }
+
+  // An oversized `ct` is a size problem, not a format one: SPEC §6 promises
+  // 413, while validatePaste would report it as a 400 FormatError.
+  if (parsed && typeof parsed === 'object' && typeof parsed.ct === 'string'
+      && parsed.ct.length > MAX_CT_B64) {
+    return err('Document is too large.', 413);
   }
 
   let clean;
@@ -95,6 +126,14 @@ async function createPaste(request, env, _ctx) {
     meta: { expire: clean.meta.expire, created },
   };
 
+  // Burn records live in SQLite-backed DO storage, whose ~2 MB per-value limit
+  // is below what MAX_CT_B64 admits: a valid-per-format record between the two
+  // caps would make storage.put throw an uncaught 500 inside the DO. Reject it
+  // here with a clean 413 instead (SPEC §6). KV (25 MiB values) is unaffected.
+  if (burn && JSON.stringify({ paste, dth, exp: 0 }).length > MAX_BURN_RECORD) {
+    return err('Document is too large for a one-time-view paste.', 413);
+  }
+
   // Generate an unused id (128-bit; collisions are astronomically unlikely, but
   // we still check and regenerate to be safe).
   let id;
@@ -116,22 +155,48 @@ async function readPaste(id, env, peekOnly) {
   if (!info) return err('Document does not exist, has expired or has been deleted.', 404);
 
   if (info.burn) {
-    // Peek (?meta=1) returns the head without consuming; a plain GET consumes.
-    // The client peeks first to verify a password before the single read.
-    if (peekOnly) {
-      const res = await burnStub(env, id).peek();
-      if (res.status === 'ok') return json(res.head, 200);
-      return err('This document was single-use and has already been read, or has expired.', 410);
-    }
-    const res = await burnStub(env, id).consume();
-    if (res.status === 'ok') return json(res.paste, 200);
+    // GET on a burn id is always safe: with or without ?meta=1 it returns the
+    // head (never `ct`) without consuming. Destructive consumption lives on
+    // POST /api/paste/:id/consume (see consumePaste), so an ambient GET — an
+    // <img> tag, a navigation prefetch, a link-scanning bot — can never destroy
+    // a note whose id it happened to learn.
+    const res = await burnStub(env, id).peek();
+    if (res.status === 'ok') return json(res.head, 200);
     return err('This document was single-use and has already been read, or has expired.', 410);
   }
 
-  // KV reads never consume, so peekOnly is a no-op here.
   const rec = await kvGet(env, id);
   if (!rec) return err('Document does not exist, has expired or has been deleted.', 404);
+  if (peekOnly) {
+    // SPEC §10: ?meta=1 returns a head for every storage class, not just burn
+    // ids — the ciphertext must not ride along on a metadata request.
+    const p = rec.p;
+    return json({ v: p.v, wk: p.wk, adata: p.adata, meta: p.meta }, 200);
+  }
   return json(rec.p, 200);
+}
+
+// The single destructive read for burn pastes. Requiring a custom header makes
+// this a CORS *non-simple* request: a cross-origin browser must preflight, the
+// API sends no CORS headers, so the preflight fails and the consume never
+// happens. Fetch Metadata (when the browser provides it) rejects cross-site
+// senders outright as defense in depth. Non-browser clients just set the header.
+async function consumePaste(id, request, env) {
+  if ((request.headers.get('x-burn-intent') || '').trim().toLowerCase() !== 'consume') {
+    return err('Burn consumption requires the "X-Burn-Intent: consume" header.', 400);
+  }
+  const site = (request.headers.get('sec-fetch-site') || '').toLowerCase();
+  if (site === 'cross-site') {
+    return err('Cross-site burn consumption is not allowed.', 403);
+  }
+
+  const info = parseId(id);
+  if (!info) return err('Document does not exist, has expired or has been deleted.', 404);
+  if (!info.burn) return err('Only one-time-view pastes can be consumed.', 404);
+
+  const res = await burnStub(env, id).consume();
+  if (res.status === 'ok') return json(res.paste, 200);
+  return err('This document was single-use and has already been read, or has expired.', 410);
 }
 
 async function deletePaste(id, request, env) {

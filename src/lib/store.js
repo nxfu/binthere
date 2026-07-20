@@ -7,12 +7,22 @@ import { EXPIRE_SECONDS } from '../../public/js/format.js';
 
 export const MAX_BODY = 4 * 1024 * 1024; // 4 MiB request-body cap
 
+// SQLite-backed Durable Object storage caps a serialized value at ~2 MB — below
+// what MAX_CT_B64 (3,000,000 b64url chars) admits. Burn records are capped with
+// headroom for the { paste, dth, exp } envelope so the create path can answer a
+// clean 413 instead of storage.put throwing mid-create (SPEC §6). Both official
+// clients stay far under this (1 MiB plaintext → ~1.4 M b64url chars).
+export const MAX_BURN_RECORD = 1900000;
+
 export function ttlSeconds(expire) {
   return EXPIRE_SECONDS[expire] ?? 0;
 }
 
 // ── KV (normal pastes) ───────────────────────────────────────────────────────
 
+// Best-effort only: KV is eventually consistent and check-then-put is not
+// atomic, so this cannot guarantee uniqueness — the 128-bit CSPRNG id does.
+// Kept as a cheap belt-and-braces read, not a correctness mechanism.
 export async function kvExists(env, id) {
   return (await env.PASTES.get(id)) !== null;
 }
