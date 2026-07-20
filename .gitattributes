@@ -1,0 +1,8 @@
+# Force LF in working trees regardless of core.autocrlf. Two things depend on
+# byte-stable checkouts: the CRLF-free shebang in cli/bin/binthere.js (a CRLF
+# checkout published with `npm pack` would break `#!/usr/bin/env node` on
+# Unix), and the vendor-drift byte-compare between cli/vendor/ and public/js/.
+* text=auto eol=lf
+
+*.woff2 binary
+*.png binary
