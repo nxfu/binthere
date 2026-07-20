@@ -1,11 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <rect width="32" height="32" rx="7" fill="#000000"/>
-  <rect x="0.5" y="0.5" width="31" height="31" rx="6.5" fill="none" stroke="#ffffff" stroke-opacity="0.16"/>
-  <!-- monochrome "encrypted bin": brackets enclosing a keyhole dot -->
-  <g fill="none" stroke="#fafafa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M12 9 H9 V23 H12"/>
-    <path d="M20 9 H23 V23 H20"/>
+  <!-- Guilloché rosette on Plate paper — simplified from the watermark/seal.
+       Colors mirror the Iron Gall tokens; media query flips to the Archive (light) theme. -->
+  <style>
+    :root { --paper: #0d1117; --rule: #33404c; --accent: #8fb3cc; }
+    @media (prefers-color-scheme: light) {
+      :root { --paper: #f2f1ec; --rule: #c8c6bd; --accent: #2e5472; }
+    }
+  </style>
+  <rect width="32" height="32" rx="7" fill="var(--paper)"/>
+  <rect x="0.5" y="0.5" width="31" height="31" rx="6.5" fill="none" stroke="var(--rule)"/>
+  <g fill="none" stroke="var(--accent)" stroke-width="1.4">
+    <circle cx="16" cy="16" r="10.2"/>
+    <ellipse cx="16" cy="16" rx="10.2" ry="4"/>
+    <ellipse cx="16" cy="16" rx="10.2" ry="4" transform="rotate(60 16 16)"/>
+    <ellipse cx="16" cy="16" rx="10.2" ry="4" transform="rotate(120 16 16)"/>
   </g>
-  <circle cx="16" cy="14.5" r="2.4" fill="#fafafa"/>
-  <rect x="14.9" y="16" width="2.2" height="4.4" rx="1.1" fill="#fafafa"/>
+  <circle cx="16" cy="16" r="1.7" fill="var(--accent)"/>
 </svg>

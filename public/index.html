@@ -28,6 +28,9 @@
         <meta property="og:image:height" content="630" />
         <meta name="twitter:card" content="summary_large_image" />
         <link rel="icon" type="image/svg+xml" href="/img/favicon.svg" />
+        <!-- PNG fallbacks: Safari ignores SVG favicons; iOS wants a full-bleed square. -->
+        <link rel="icon" type="image/png" sizes="32x32" href="/img/favicon-32.png" />
+        <link rel="apple-touch-icon" href="/img/apple-touch-icon.png" />
         <!-- Blocking, first-party (CSP-safe): sets the theme class before paint so
        there's no light/dark flash. Must precede the stylesheet. -->
         <script src="/js/theme-init.js"></script>
