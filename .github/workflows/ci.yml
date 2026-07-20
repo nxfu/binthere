@@ -1,6 +1,8 @@
 # CI for binthere — runs the full vitest suite (crypto vectors, format, ids,
 # markdown XSS, highlight, burn concurrency) in the real workerd runtime via
-# @cloudflare/vitest-pool-workers. Keep this green: every push and PR must pass.
+# @cloudflare/vitest-pool-workers, the DOM-mount suites (happy-dom), then the
+# CLI suite (cli/) in plain Node — including the vendor-drift byte-compare
+# against public/js/. Runs on every push to main and on every PR.
 
 name: CI
 
@@ -18,10 +20,40 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      # wrangler.toml is tracked (the KV ids in it are resource identifiers,
+      # not secrets); the workerd test pool reads it directly.
       - run: npm ci
-      - run: cp wrangler.toml.example wrangler.toml
       - run: npm run lint
       # Confirm the pinned crypto vectors still reproduce byte-for-byte (SPEC.md §11):
       # regenerate and diff against the committed test/vectors.expected.txt.
       - run: node test/genvectors.mjs | diff -u test/vectors.expected.txt -
-      - run: npm test
+      # Workerd suite runs WITH coverage so the configured thresholds
+      # (80% statements / 70% branches) are enforced; then the DOM and CLI projects.
+      - run: npm run test:coverage
+      - run: npm run test:dom
+      - run: npm run test:cli
+
+  # The CLI (cli/) is a cross-platform npm package with engines.node >= 20:
+  # prove the plain-Node suite (frozen vectors, commands, TUI, vendor drift)
+  # passes on Windows and macOS, and on the oldest supported Node (20) as well
+  # as current (22). (The ubuntu job above already covers Linux.)
+  #
+  # Invariant: the CLI stays zero-runtime-dependency and its tests run from the
+  # ROOT npm install (vitest is hoisted; cli/package-lock.json is a stub that no
+  # job installs). If the CLI ever grows its own devDependency, add an
+  # `npm ci --prefix cli` step here or CI will fail confusingly.
+  test-cli:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+        node: [20, 22]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run test:cli

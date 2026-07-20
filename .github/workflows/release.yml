@@ -1,0 +1,50 @@
+# Release automation for the CLI (npm package `binthere`, published from cli/).
+#
+# Trigger: push a tag like `cli-v0.1.0`. The job re-runs the full test matrix's
+# core (lint + all three vitest projects + vector byte-diff + vendor drift),
+# verifies the tag matches cli/package.json's version, then publishes with npm
+# provenance (supply-chain attestation binding the tarball to this exact
+# workflow run and commit).
+#
+# One-time setup: create an npm automation token with publish rights for
+# `binthere` and store it as the NPM_TOKEN repository secret. Publishing must
+# run from the monorepo (prepack's drift check reads ../../public/js) — which
+# is exactly what this workflow does; see CONTRIBUTING.md "Releasing".
+
+name: Release CLI
+
+on:
+  push:
+    tags: ['cli-v*']
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm --provenance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - run: npm run lint
+      - run: node test/genvectors.mjs | diff -u test/vectors.expected.txt -
+      - run: npm test
+      # The tag must name the version actually in cli/package.json.
+      - name: Verify tag matches cli/package.json version
+        run: |
+          tag="${GITHUB_REF_NAME#cli-v}"
+          pkg="$(node -p "require('./cli/package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "tag cli-v$tag does not match cli/package.json version $pkg" >&2
+            exit 1
+          fi
+      # prepack re-runs the vendor drift check + the CLI suite as a final gate.
+      - run: npm publish --provenance --access public
+        working-directory: cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
