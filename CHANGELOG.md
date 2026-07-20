@@ -28,10 +28,14 @@ versioned separately from the application (see [`SPEC.md`](./SPEC.md), currently
   press within 5 s confirms, and the button disarms on timeout or focus loss.
 - **New-note passwords are typed twice.** The password modal gained a confirmation field
   (mismatch is caught before sealing — a typo'd password would permanently lock a
-  one-time note) and a practical 128-character cap.
+  one-time note) and a practical 128-character cap, enforced with a visible error rather
+  than a `maxlength` attribute — silent truncation of a pasted longer password would
+  seal the note with a password the reader doesn't have. Show/hide toggles reset to
+  masked every time a password field is presented.
 - **Hostile pastes can no longer freeze the viewer's tab:** syntax highlighting and
-  Markdown rendering enforce a render budget (300 KB / 30k nodes); beyond it content is
-  shown verbatim as plain text instead of minting hundreds of thousands of DOM nodes.
+  Markdown rendering enforce a render budget (300 KB / 30k DOM nodes — every token
+  counts, including plain-text ones); beyond it content is shown verbatim as plain text
+  instead of minting hundreds of thousands of DOM nodes.
 - **CLI: user aborts (Ctrl+C, Esc at the menu) now exit 130** (the conventional
   128+SIGINT code) instead of 2, so scripts can tell "user cancelled" from "bad
   invocation". Network failures name the host and cause (`ECONNREFUSED`, DNS, TLS)
@@ -51,6 +55,20 @@ versioned separately from the application (see [`SPEC.md`](./SPEC.md), currently
   silently derived a different key); keystrokes typed during the wizard intro no longer
   echo over the animation or leak into the first menu read; Ctrl+C on the burn
   confirmation prompt is a defined "no".
+- **The wizard is now actually usable on Windows (conpty).** Three interlocking input
+  bugs fixed: escape sequences split across reads no longer decode as a spurious Esc
+  (which aborted the menu mid-navigation), several keys coalesced into one chunk are
+  split and queued instead of silently dropped (fast or held arrows now register every
+  press), and the per-keypress pause/raw-mode churn that could wedge the conpty read
+  loop — freezing the menu after one keypress with even Ctrl+C dead — is gone. Key
+  reading is now a persistent raw-mode reader for the whole wizard session
+  (`tui/keys.js`); raw mode is set once and never toggled between screens, because
+  conpty applies console-mode changes asynchronously and an off/on race at the
+  menu-to-prompt hand-off left the terminal line-buffered with echo off (typing was
+  invisible until Enter). The entry point restores the terminal and pauses stdin on the
+  way out, so the process still exits cleanly.
+- **Web polish:** programmatic focus targets (the view sections) no longer paint a
+  focus ring around the entire view on load.
 - **A bad link no longer burns a passwordless one-time note:** the web client now verifies
   the key from the link against the note's wrapped key *before* the destructive read, so a
   truncated or corrupted link fails with "the note was not opened and still exists" instead
