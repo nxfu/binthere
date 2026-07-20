@@ -66,6 +66,10 @@ export function promptHidden(question, { input = process.stdin, output = process
 export function promptMultiline({ input = process.stdin, output = process.stderr, prompt = '' } = {}) {
   return new Promise((resolve, reject) => {
     const rl = readline.createInterface({ input, output, prompt });
+    // The key-driven screens leave stdin EXPLICITLY paused (tui/keys.js
+    // releaseKeys); readline relies on listener-attach auto-flow, which Node
+    // skips after an explicit pause — without this the user types blind.
+    input.resume();
     const lines = [];
     let settled = false;
     // Ctrl+Q finishes (raw mode disables XON/XOFF flow control, so the chord
@@ -110,6 +114,7 @@ export async function promptLine(question, { input = process.stdin, output = pro
     throw new UsageError('cannot prompt: stdin is not a terminal');
   }
   const rl = readline.createInterface({ input, output });
+  input.resume(); // see promptMultiline — undo any explicit pause
   let aborted = false;
   rl.on('SIGINT', () => {
     aborted = true;
@@ -136,6 +141,7 @@ export async function promptLine(question, { input = process.stdin, output = pro
 export async function confirm(question, { input = process.stdin, output = process.stderr } = {}) {
   if (!input.isTTY) return false;
   const rl = readline.createInterface({ input, output });
+  input.resume(); // see promptMultiline — undo any explicit pause
   let aborted = false;
   rl.on('SIGINT', () => {
     aborted = true;

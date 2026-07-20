@@ -107,5 +107,8 @@ export async function selectMenu(items, io, { header = [], status = [], tick = 0
     }
   } finally {
     if (fancy) io.stderr(SHOW_CURSOR);
+    // The persistent key reader must not stay attached once the menu is done:
+    // the flows that follow prompt via readline, which needs the stream.
+    if (typeof io.releaseKeys === 'function') io.releaseKeys();
   }
 }

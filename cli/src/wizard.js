@@ -195,6 +195,7 @@ async function copyKeys(io, theme, url, deletetoken, sweep = null) {
     }
   } finally {
     if (sweep) io.stderr(SHOW_CURSOR);
+    if (typeof io.releaseKeys === 'function') io.releaseKeys();
   }
 }
 

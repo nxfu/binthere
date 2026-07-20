@@ -34,3 +34,8 @@ process.stderr.on('error', (e) => {
 });
 
 process.exitCode = await run(process.argv.slice(2));
+// The wizard keeps stdin flowing in raw mode between its screens (toggling
+// the conpty console mode mid-session races — see src/tui/keys.js). A still-
+// flowing stdin refs the event loop and would keep the process alive here;
+// release it unconditionally now that all interaction is over.
+if (process.stdin.isTTY) process.stdin.pause();

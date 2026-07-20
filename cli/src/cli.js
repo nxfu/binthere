@@ -14,7 +14,7 @@ import { cmdGet } from './commands/get.js';
 import { AbortError, UsageError } from './errors.js';
 import { confirm, promptHidden, promptLine, promptMultiline } from './prompt.js';
 import { copyToClipboard } from './tui/clipboard.js';
-import { readKey } from './tui/keys.js';
+import { readKey, releaseKeys } from './tui/keys.js';
 import { center } from './tui/screen.js';
 import { DEFAULT_SERVER } from './url.js';
 import { runWizard } from './wizard.js';
@@ -85,6 +85,9 @@ export function defaultIo() {
     promptMultiline: (prompt) => promptMultiline({ prompt }),
     confirm: (question) => confirm(question),
     readKey: () => readKey(),
+    // Hand stdin back after a readKey-driven screen (menu, result screen) so
+    // the readline-based prompts get a clean stream — see tui/keys.js.
+    releaseKeys: () => releaseKeys(),
     // Swallow keystrokes during a non-interactive stretch (the wizard intro):
     // raw mode stops the terminal echoing them over the animation, and the
     // discard listener keeps them from buffering into the first menu read.
@@ -95,14 +98,15 @@ export function defaultIo() {
       const discard = (buf) => {
         if (buf.includes(0x03)) process.kill(process.pid, 'SIGINT');
       };
-      const wasRaw = process.stdin.isRaw === true;
       process.stdin.setRawMode(true);
       process.stdin.resume();
       process.stdin.on('data', discard);
+      // Unmute only removes the discard listener. Raw mode and flow stay on:
+      // the menu's key reader takes over immediately, and toggling the conpty
+      // console mode in between races its async mode application (see
+      // tui/keys.js). bin/binthere.js restores the terminal on exit.
       return () => {
         process.stdin.off('data', discard);
-        process.stdin.pause();
-        process.stdin.setRawMode(wasRaw);
       };
     },
   };
