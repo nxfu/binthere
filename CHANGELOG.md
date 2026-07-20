@@ -13,8 +13,10 @@ versioned separately from the application (see [`SPEC.md`](./SPEC.md), currently
   pre-Iron-Gall brackets-and-keyhole placeholder. It follows the browser's
   `prefers-color-scheme`, flipping to the light Archive palette on light UIs
   (`tools/favicon-check.html` previews it at tab-strip sizes). PNG fallbacks ship
-  alongside it — a 32px tile for Safari (which ignores SVG favicons) and a 180px
-  full-bleed `apple-touch-icon` for iOS home screens.
+  alongside it — 16/32px tiles for Safari (which ignores SVG favicons), a 180px
+  full-bleed `apple-touch-icon` for iOS home screens, and a real root `/favicon.ico`
+  (16+32+48) for agents that probe by convention (it previously fell through to the
+  SPA HTML).
 
 ## [1.1.0] — 2026-07-20
 
