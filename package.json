@@ -1,6 +1,6 @@
 {
   "name": "binthere",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "A zero-knowledge, end-to-end encrypted pastebin. Content is encrypted/decrypted in the browser (AES-256-GCM); the server only ever stores ciphertext.",
   "license": "MIT",

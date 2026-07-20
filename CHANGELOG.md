@@ -6,6 +6,10 @@ versioned separately from the application (see [`SPEC.md`](./SPEC.md), currently
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [1.1.0] — 2026-07-20
+
 ### Changed
 
 - **One-time notes can no longer be destroyed by a stray GET.** Destructive burn
@@ -93,7 +97,6 @@ versioned separately from the application (see [`SPEC.md`](./SPEC.md), currently
   Coverage thresholds (80% statements / 70% branches) are enforced in the workerd suite.
 - **Release automation:** pushing a `cli-v*` tag runs the full suites and publishes the
   CLI to npm with provenance (`.github/workflows/release.yml`).
-
 - **Official CLI** (`cli/`, published to npm as `binthere`): create, get, and delete notes
   from the terminal. Second client of the same frozen protocol v1 — encryption is local
   (Node ≥ 20 WebCrypto + `CompressionStream`), only ciphertext is uploaded, and the SPEC §11
@@ -231,5 +234,6 @@ stores nothing but ciphertext and non-secret metadata.
 
 [Keep a Changelog]: https://keepachangelog.com/en/1.1.0/
 [Semantic Versioning]: https://semver.org/spec/v2.0.0.html
-[Unreleased]: https://github.com/nxfu/binthere/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/nxfu/binthere/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/nxfu/binthere/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/nxfu/binthere/releases/tag/v1.0.0
