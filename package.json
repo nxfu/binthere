@@ -3,6 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "description": "A zero-knowledge, end-to-end encrypted pastebin. Content is encrypted/decrypted in the browser (AES-256-GCM); the server only ever stores ciphertext.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nxfu/binthere.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nxfu/binthere/issues"
+  },
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -10,7 +18,9 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "vitest run",
+    "test": "vitest run && vitest run --config vitest.dom.config.js && vitest run --config cli/vitest.config.js",
+    "test:dom": "vitest run --config vitest.dom.config.js",
+    "test:cli": "vitest run --config cli/vitest.config.js",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint .",
@@ -18,11 +28,12 @@
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.18.5",
-    "@eslint/js": "^9.0.0",
+    "@eslint/js": "^9.39.5",
     "@vitest/coverage-istanbul": "^4.1.10",
-    "eslint": "^9.0.0",
-    "globals": "^15.0.0",
+    "eslint": "^9.39.5",
+    "globals": "^15.15.0",
+    "happy-dom": "^20.11.0",
     "vitest": "^4.1.10",
-    "wrangler": "^4.42.0"
+    "wrangler": "^4.111.0"
   }
 }

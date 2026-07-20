@@ -6,7 +6,7 @@ import js from '@eslint/js';
 import globals from 'globals';
 
 export default [
-  { ignores: ['node_modules/**', 'public/js/qrcode.js', '.wrangler/**', 'coverage/**'] },
+  { ignores: ['node_modules/**', 'public/js/qrcode.js', '.wrangler/**', 'coverage/**', 'cli/vendor/**'] },
 
   js.configs.recommended,
 
@@ -37,9 +37,17 @@ export default [
     languageOptions: { globals: { ...globals.serviceworker, ...globals.node } },
   },
 
-  // Tests + the vector generator: vitest globals + Node.
+  // Tests + the vector generator: vitest globals + Node. test-dom runs the
+  // browser modules against happy-dom, so it gets DOM globals too.
   {
-    files: ['test/**/*.js', 'test/**/*.mjs'],
+    files: ['test/**/*.js', 'test/**/*.mjs', 'test-dom/**/*.js'],
     languageOptions: { globals: { ...globals.node, ...globals.browser } },
+  },
+
+  // CLI package (Node ≥ 20: fetch/WebCrypto/CompressionStream are globals).
+  // Its tests import vitest APIs explicitly, so plain Node globals suffice.
+  {
+    files: ['cli/**/*.js', 'cli/**/*.mjs'],
+    languageOptions: { globals: { ...globals.node } },
   },
 ];
