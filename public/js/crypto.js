@@ -56,7 +56,10 @@ export async function aesGcmDecrypt(key, iv, ciphertext, aad) {
 export async function deriveKEK(F, { usePassword, password, salt, iter }) {
   let pwIkm = new Uint8Array(0);
   if (usePassword) {
-    const pwKey = await crypto.subtle.importKey('raw', utf8(password), { name: 'PBKDF2' }, false, ['deriveBits']);
+    // NFC-normalize before UTF-8 encoding (SPEC §2): "café" typed on macOS
+    // (NFD) and Windows (NFC) must stretch to the same key, or the right
+    // password fails across devices. ASCII passwords are unaffected.
+    const pwKey = await crypto.subtle.importKey('raw', utf8(password.normalize('NFC')), { name: 'PBKDF2' }, false, ['deriveBits']);
     const bits = await crypto.subtle.deriveBits(
       { name: 'PBKDF2', hash: 'SHA-256', salt, iterations: iter }, pwKey, 256);
     pwIkm = new Uint8Array(bits);

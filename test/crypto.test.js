@@ -8,7 +8,7 @@ import {
   gzip, gunzip, PasswordRequired, DecryptError, MAX_PLAINTEXT,
 } from '../public/js/crypto.js';
 import { buildAAD, validatePaste } from '../public/js/format.js';
-import { hex, b64urlFromBytes, bytesFromB64url, utf8, fromUtf8 } from '../public/js/bytes.js';
+import { hex, b64urlFromBytes, bytesFromB64url, randomBytes, utf8, fromUtf8 } from '../public/js/bytes.js';
 
 const seq = (start, n) => Uint8Array.from({ length: n }, (_, i) => (start + i) & 0xff);
 const fill = (v, n) => new Uint8Array(n).fill(v);
@@ -181,5 +181,46 @@ describe('decompression safety', () => {
   });
   it('rejects malformed gzip input', async () => {
     await expect(gunzip(fill(0xab, 64))).rejects.toBeInstanceOf(DecryptError);
+  });
+});
+
+describe('base64url canonicity (SPEC §1 errata) — fail closed on aliasing encodings', () => {
+  it('accepts the canonical encoding of every remainder length', () => {
+    expect(Array.from(bytesFromB64url('Zg'))).toEqual([0x66]);        // rem 2
+    expect(Array.from(bytesFromB64url('Zm8'))).toEqual([0x66, 0x6f]); // rem 3
+    expect(Array.from(bytesFromB64url('Zm9v'))).toEqual([0x66, 0x6f, 0x6f]); // rem 0
+    expect(Array.from(bytesFromB64url('AA'))).toEqual([0x00]);
+    expect(Array.from(bytesFromB64url(''))).toEqual([]);
+  });
+
+  it('rejects non-canonical encodings (non-zero unused bits in the final char)', () => {
+    // Each would silently alias the canonical string to the same bytes.
+    for (const bad of ['Zh', 'AB', 'Zm9', 'AAB', '_-_-B']) {
+      expect(() => bytesFromB64url(bad), bad).toThrow(/invalid base64url/);
+    }
+  });
+
+  it('still rejects bad alphabet and impossible lengths', () => {
+    for (const bad of ['Zg=', 'Z g', 'Zm9vY', 'a+b/', '%%%']) {
+      expect(() => bytesFromB64url(bad), bad).toThrow(/invalid base64url/);
+    }
+  });
+
+  it('round-trips: encode ∘ decode is the identity on canonical strings', () => {
+    for (const s of ['', 'AA', 'Zg', 'Zm8', 'Zm9v', b64urlFromBytes(randomBytes(31))]) {
+      expect(b64urlFromBytes(bytesFromB64url(s))).toBe(s);
+    }
+  });
+});
+
+describe('password NFC normalization (SPEC §2 errata)', () => {
+  it('NFD and NFC forms of the same password derive the same key', async () => {
+    const nfc = 'café';  // é as one code point
+    const nfd = 'café'; // e + combining acute
+    expect(nfc).not.toBe(nfd);      // distinct strings…
+    const { body, fragment } = await encryptPaste({ text: 'across devices', password: nfd });
+    // …but the paste created with the NFD input opens with the NFC input.
+    const out = await decryptPaste({ paste: body, fragment, password: nfc });
+    expect(out.text).toBe('across devices');
   });
 });
