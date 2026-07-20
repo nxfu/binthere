@@ -1,5 +1,7 @@
 # bin*there*
-![binthere — say it once, sealed. End-to-end encrypted notes that disappear.](public/opengraph.png)
+![binthere — say it once, sealed. End-to-end encrypted notes that disappear.](public/cli-preview.png)
+
+Say it once. *Sealed.* — write. share. gone.
 
 **Project**
 
@@ -21,7 +23,7 @@ note self-destructs the moment it's read. Your browser encrypts everything with 
 of it as a self-destructing envelope for text: secrets, credentials, a private message, a
 snippet of code.
 
-**Live:** <https://binthere.nxfu.workers.dev>
+**Live:** <https://binthere.gaury.dev>
 
 binthere is a clean-room rebuild inspired by [PrivateBin](https://privatebin.info)'s
 zero-knowledge model — modern Web Crypto, a strict CSP, atomic burn-after-read, and a real
@@ -35,6 +37,7 @@ server to maintain.
 - [Features](#features)
 - [How it compares](#how-it-compares)
 - [Quick start](#quick-start)
+- [CLI](#cli)
 - [Deployment](#deployment)
 - [Architecture](#architecture)
 - [Limitations](#limitations)
@@ -88,7 +91,7 @@ What this means in practice:
 
 | Feature | Details |
 | --- | --- |
-| Zero-knowledge | Encryption and decryption happen only in the browser; the server stores opaque ciphertext and non-secret metadata. |
+| Zero-knowledge | Encryption and decryption happen only on your device (browser or [CLI](#cli)); the server stores opaque ciphertext and non-secret metadata. |
 | Optional password | Layered on top of the URL key — neither alone can decrypt. |
 | Burn-after-read | Every note is a strict, atomic single-consumer read (Durable Object). The first reader gets it; everyone else gets `410 Gone`. |
 | Auto-expiry | Notes delete themselves after 24 hours. |
@@ -130,7 +133,8 @@ needed for development.
 | Command | Description |
 | --- | --- |
 | `npm run dev` | Local dev server at `http://127.0.0.1:8787` |
-| `npm test` | Full Vitest suite in the real `workerd` runtime |
+| `npm test` | Full Vitest suite: Worker/frontend in the real `workerd` runtime, then the CLI suite in Node |
+| `npm run test:cli` | Just the CLI suite (`cli/`, plain Node environment) |
 | `npm run test:watch` | Tests in watch mode |
 | `npm run test:coverage` | Tests with coverage report |
 | `npm run lint` | ESLint 9 (flat config) |
@@ -139,6 +143,58 @@ needed for development.
 
 CI runs lint, a byte-for-byte test-vector diff, and the full suite.
 
+## CLI
+
+An official command-line client lives in [`cli/`](./cli) and is published to npm as
+[`binthere`](https://www.npmjs.com/package/binthere). It implements the same frozen protocol
+as the web client — encryption happens locally, only ciphertext is uploaded, and the key
+never leaves your machine except inside the printed share URL. Notes have the same lifecycle
+as the website: **every note deletes after one read, or after 24 hours**.
+
+```bash
+npm install -g binthere    # or try it without installing anything: npx binthere
+```
+
+On a terminal, a bare `binthere` takes over the screen with an interactive menu:
+
+```text
+     ✦
+ ██▄ █ █▄ █ ▀█▀ █▄█ ██▀ █▀▄ ██▀
+ █▄█ █ █ ▀█  █  █ █ █▄▄ █▀▄ █▄▄
+
+ Zero-knowledge encrypted notes.
+ encrypted locally · one read · gone in 24 hours
+
+ ╭───────────────────────────────────────────────────────────╮
+ │ ❯ 1 Create a note   write, seal, and get a one-time link  │
+ │   2 View a note     paste a share URL — reading burns it  │
+ │   3 Delete a note   remove it early with the delete token │
+ ╰───────────────────────────────────────────────────────────╯
+
+ ↑↓ move  ·  ↵ select  ·  1-3 jump  ·  ^c quit
+```
+
+Pick an action with ↑/↓ (or the `1`–`3` hotkeys) and hit enter. Writing a note, **Ctrl+Q**
+seals it; the result screen shows the share link, a scannable terminal QR code, and the
+delete token — press **c** to copy the link to the clipboard, **t** for the token.
+
+Piping works too — decoration draws on stderr, so stdout stays machine-readable:
+
+```bash
+git diff | npx binthere                # encrypt stdin → share URL (create is the default)
+npx binthere get '<share-url>'         # fetch + decrypt (safe burn flow, like the browser)
+npx binthere delete <share-url-or-id>  # delete with the token from create time
+```
+
+Zero runtime dependencies (Node ≥ 20 built-ins only). Passwords and delete tokens are never
+accepted as flag values — hidden prompt or env var only — and the password is verified
+*before* the destructive read, exactly like the browser. See [`cli/README.md`](./cli/README.md)
+for the full command reference and security notes (including why `binthere get -` exists).
+
+The CLI's `cli/vendor/` modules are byte-identical copies of
+`public/js/{bytes,format,crypto,qrcode}.js`; a drift test fails CI if they ever diverge
+(`node cli/scripts/sync-shared.mjs` re-aligns).
+
 ## Deployment
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/nxfu/binthere)
@@ -146,9 +202,11 @@ CI runs lint, a byte-for-byte test-vector diff, and the full suite.
 The button above clones the repo and provisions everything declared in
 [`wrangler.toml`](./wrangler.toml) — the static assets, the `PASTES` KV binding, the
 `BurnPaste` Durable Object + migration, and the `CREATE_RL` rate limiter — on your own
-Cloudflare account.
+Cloudflare account. The importer creates fresh resources and rewrites the resource ids in
+*your* copy of the config; the checked-in ids belong to the origin deployment and are
+identifiers, not secrets.
 
-To deploy manually instead (note the checked-in KV ids belong to the origin deployment):
+If the one-click path ever misbehaves, the manual route below is the guaranteed fallback:
 
 ```bash
 npm run kv:create        # create your own PASTES KV namespace (+ preview)
@@ -162,9 +220,14 @@ npm run deploy           # creates the Worker, Durable Object, and rate limiter
 - Replace the KV `id` / `preview_id` in `wrangler.toml` with your own (a pristine template is
   in [`wrangler.toml.example`](./wrangler.toml.example)).
 - Update the hardcoded canonical URLs: `og:url` / `og:image` in `public/index.html` and
-  `Canonical` in `public/.well-known/security.txt` point at `binthere.nxfu.workers.dev`; the
+  `Canonical` in `public/.well-known/security.txt` point at `binthere.gaury.dev`; the
   footer and `security.txt` `Policy` point at `github.com/nxfu/binthere`.
 - `npm run dev` works with placeholder KV ids — KV is emulated locally.
+- **Cost note on `never` expiry:** the official clients always create 24-hour one-time
+  notes, but the wire format (and the API) accepts `expire: "never"`. Such a paste is
+  stored with no KV TTL and no Durable Object alarm — an unread burn note kept forever
+  carries a small perpetual cost under SQLite-backed DO storage billing. If you expose
+  `never` to third-party clients, decide whether to cap it or accept the standing cost.
 
 </details>
 
@@ -213,6 +276,8 @@ src/
 test/              vitest suites (run in workerd) + genvectors.mjs (vector regenerator)
                    + vectors.expected.txt (pinned vector output, diffed in CI)
 tools/             verify-vectors.py — independent Python cross-check of the frozen vectors
+cli/               the npm-published CLI client (own package.json + Node-environment tests;
+                   vendor/ mirrors public/js/{bytes,format,crypto,qrcode}.js, drift-tested)
 SPEC.md SECURITY.md ARCHITECTURE.md
 CHANGELOG.md CONTRIBUTING.md CODE_OF_CONDUCT.md LICENSE
 ```
@@ -303,21 +368,24 @@ No account, extension, or app.
 <details>
 <summary>Can I create pastes from a script or CLI?</summary>
 
-The HTTP API accepts only ciphertext in paste format v1, so a client must implement the
-client-side encryption described in [`SPEC.md`](./SPEC.md) (the frozen test vectors make this
-verifiable). There is no official CLI yet.
+Yes — the official CLI is published to npm: `npm install -g binthere` (or `npx binthere`).
+It speaks the same frozen protocol as the web client and is tested against the same vectors;
+see the [CLI section](#cli). Third-party clients are possible too: the HTTP API accepts only
+ciphertext in paste format v1, and the frozen test vectors in [`SPEC.md`](./SPEC.md) make an
+independent implementation verifiable.
 
 </details>
 
 ## Roadmap
 
-Deliberately out of scope for v1, roughly in priority order:
+Roughly in priority order:
 
-- **Argon2id** as a versioned password-KDF option alongside PBKDF2 (spec-first: vectors before code)
-- **File attachments** — encrypted binary blobs with size limits (likely R2 for large files)
-- **Headless-browser CSP + render test** (Playwright) in CI, asserting zero CSP violations
-  across the create/view/burn flows
-- Possible **comments/discussion** with per-thread encryption, and **i18n**
+- [x] **Official CLI client** — shipped; on npm as
+      [`binthere`](https://www.npmjs.com/package/binthere) (see [CLI](#cli))
+- [ ] **Argon2id** as a versioned password-KDF option alongside PBKDF2 (spec-first: vectors before code)
+- [ ] **File attachments** — encrypted binary blobs with size limits (likely R2 for large files)
+- [ ] **Headless-browser CSP + render test** (Playwright) in CI, asserting zero CSP violations
+      across the create/view/burn flows
 
 ## Security
 

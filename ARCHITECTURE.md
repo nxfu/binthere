@@ -74,6 +74,19 @@ asset** and the **Worker bundles the same file** — one source of truth for the
 | `src/burn-do.js` | worker | `BurnPaste` Durable Object |
 | `src/lib/{ids,store,ratelimit}.js` | worker | id/token gen + hashing, KV/DO routing + expiry, rate-limit wrapper |
 
+### The CLI client
+
+The official CLI (`cli/`, published to npm as [`binthere`](https://www.npmjs.com/package/binthere))
+is a **second client of the same frozen protocol**, running in Node ≥ 20 with zero runtime
+dependencies. Because npm cannot pack files outside the package root, `cli/vendor/` holds
+**byte-identical copies** of `public/js/{bytes,format,crypto,qrcode}.js` (`qrcode.js` lands as
+`qrcode.cjs` for Node's CommonJS loader); a drift test fails CI on any divergence, and
+`node cli/scripts/sync-shared.mjs` re-aligns them — `public/js/` stays the single source of
+truth. `cli/src/` is a thin consumer on top: an API client with a configurable base URL,
+share-URL build/parse, `create`/`get`/`delete` commands mirroring the browser's flows
+(including the safe `?meta=1` peek before a destructive burn read), and a dependency-free
+interactive TUI.
+
 ## Error semantics
 
 Unlike the legacy PrivateBin API (which returned HTTP 200 for everything and signaled errors
@@ -90,6 +103,12 @@ Crypto, `CompressionStream`, KV, and the Durable Object behave as in production.
 concurrency test fires 25 simultaneous reads and asserts exactly one `200` and the rest `410`.
 The frozen crypto vectors are regenerated with `node test/genvectors.mjs` (spec-first, never
 hand-edited) and independently cross-checked by a from-scratch Python implementation
-(`tools/verify-vectors.py`). CI (`.github/workflows/ci.yml`) runs lint, a byte-for-byte diff
-of the regenerated vectors against `test/vectors.expected.txt`, and the full suite on every
-push/PR.
+(`tools/verify-vectors.py`).
+
+The CLI has its own suites under `cli/test/`, run as a **second vitest project in plain Node**
+(`npm run test:cli`; `npm test` runs both projects): the SPEC §11 vectors re-verified against
+Node's WebCrypto, URL parsing, mocked-API round trips (including burn-ordering and wrong-token
+assertions), TUI/QR rendering, and the vendor-drift byte-compare against `public/js/`.
+
+CI (`.github/workflows/ci.yml`) runs lint, a byte-for-byte diff of the regenerated vectors
+against `test/vectors.expected.txt`, and both suites on every push/PR.

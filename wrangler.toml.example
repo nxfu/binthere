@@ -3,15 +3,15 @@
 # the BurnPaste Durable Object (strict burn-after-read), KV storage, and native rate
 # limiting. One deploy unit, one config — see SPEC.md / SECURITY.md / ARCHITECTURE.md.
 #
-# Setup:
-#   1. cp wrangler.toml.example wrangler.toml
-#   2. npm run kv:create          # wrangler kv namespace create PASTES (+ --preview)
-#   3. paste the printed ids into the [[kv_namespaces]] block below
-#   4. npm run deploy
-#
-# The real wrangler.toml is gitignored: it holds your account-specific KV namespace
-# ids, so it stays local and out of the public repo. This .example is the committed
-# template. `wrangler dev` runs with the placeholder ids (KV is emulated locally).
+# NOTE: the real wrangler.toml IS tracked in this repo — it carries the origin
+# deployment's KV namespace ids (resource identifiers, not secrets) so the
+# one-click Deploy button can clone and provision from it. This .example is the
+# pristine template for manual forks:
+#   1. npm run kv:create          # wrangler kv namespace create PASTES (+ --preview)
+#   2. put the printed ids into wrangler.toml's [[kv_namespaces]] block
+#      (or copy this file over it and fill in the placeholders below)
+#   3. npm run deploy
+# `wrangler dev` works with the placeholder ids (KV is emulated locally).
 
 # Worker script name is "binthere" (→ deploy URL binthere.<subdomain>.workers.dev);
 # the KV namespace keeps the "PASTES" name.

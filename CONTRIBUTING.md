@@ -31,8 +31,9 @@ Requires Node.js ≥ 20 (`.nvmrc` pins 22) and npm. From the `binthere/` directo
 ```bash
 npm install
 npm run dev      # wrangler dev → http://127.0.0.1:8787 (KV + DO + rate limit emulated locally)
-npm test         # vitest in the real workerd runtime — all suites
-npm run test:watch   # same, watch mode
+npm test         # vitest: workerd suites, then the CLI suite (cli/, plain Node)
+npm run test:cli # just the CLI suite
+npm run test:watch   # workerd suites, watch mode
 npm run test:coverage  # istanbul coverage (v8 provider can't run inside workerd)
 npm run lint     # ESLint 9 flat config (eslint.config.js)
 ```
@@ -77,7 +78,7 @@ Beyond the two hard rules, preserve these (see [`SECURITY.md`](./SECURITY.md) an
 ## Tests
 
 Every PR must keep `npm run lint` and `npm test` green (CI enforces both, plus a byte-for-byte
-diff of `node test/genvectors.mjs` output against `test/vectors.expected.txt`). The suites
+diff of `node test/genvectors.mjs` output against `test/vectors.expected.txt`). The main suites
 (all run in `workerd`):
 
 | Suite | Covers |
@@ -88,6 +89,10 @@ diff of `node test/genvectors.mjs` output against `test/vectors.expected.txt`). 
 | `test/highlight.test.js` | Code tokenizer / classification |
 | `test/ids.test.js` | ID and delete-token generation |
 | `test/burn.test.js` | Backend API + atomic single-consumer burn concurrency + password peek |
+
+The CLI package has its own Node-environment suites under `cli/test/` (frozen vectors re-run in
+plain Node, URL parsing, mocked-API round trips, and a vendor-drift byte-compare that fails if
+`cli/vendor/` diverges from `public/js/` — re-align with `node cli/scripts/sync-shared.mjs`).
 
 Add or update tests alongside behavior changes. New rendering paths and any crypto/format change
 **require** test coverage, not just passing existing suites.
@@ -115,6 +120,40 @@ in `wrangler dev`. Backend, crypto, and the shared pure modules are covered by t
 Use [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): summary`
 (e.g. `feat(burn): verify password before consuming`, `fix(...)`, `docs(...)`, `test(...)`,
 `chore(...)`, `refactor(...)`). Prefer a few small, self-contained commits over one large one.
+
+## Releasing
+
+Two artifacts version independently: the **application** (root `package.json`, tagged
+`vX.Y.Z`) and the **CLI npm package** (`cli/package.json`, tagged `cli-vX.Y.Z`). The paste
+format is versioned separately again, in `SPEC.md` (currently v1).
+
+**Application release** (`vX.Y.Z`):
+
+1. Move the `## [Unreleased]` CHANGELOG entries under a new version heading with today's
+   date, and update the compare/release links in the footer.
+2. Bump the root `package.json` version to match, commit, and tag: `git tag vX.Y.Z && git
+   push --tags`.
+3. Deploy with `npm run deploy` (the app deploys from the working tree, not from the tag —
+   tag first so the release is anchored to a ref).
+
+**CLI release** (`cli-vX.Y.Z`):
+
+1. Bump `cli/package.json` `version` (and the CHANGELOG), commit.
+2. Tag and push: `git tag cli-vX.Y.Z && git push --tags`.
+3. [`release.yml`](./.github/workflows/release.yml) takes it from there: it re-runs lint,
+   the vector byte-diff, all three test projects, verifies the tag matches
+   `cli/package.json`, then runs `npm publish --provenance --access public` from `cli/`
+   (prepack re-checks vendor drift as a final gate). It needs the `NPM_TOKEN` repository
+   secret (an npm automation token with publish rights).
+
+Caveats worth knowing:
+
+- **Publishing only works from the monorepo.** `prepack` compares `cli/vendor/` against
+  `../../public/js/` and runs vitest hoisted from the *root* install — a standalone `cli/`
+  checkout fails fast with an explanatory message. Run `npm ci` at the repo root first.
+- **Line endings matter.** The tracked `.gitattributes` forces LF; publish from a checkout
+  that respects it, or the `#!/usr/bin/env node` shebang and the byte-exact vendor-drift
+  check can break.
 
 ## Reporting vulnerabilities
 

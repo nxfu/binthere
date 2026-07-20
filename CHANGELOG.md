@@ -6,7 +6,123 @@ versioned separately from the application (see [`SPEC.md`](./SPEC.md), currently
 
 ## [Unreleased]
 
-_Nothing yet — this section collects changes landing after the v1.0.0 open-source release._
+### Changed
+
+- **One-time notes can no longer be destroyed by a stray GET.** Destructive burn
+  consumption moved from `GET /api/paste/:id` to an explicit
+  `POST /api/paste/:id/consume` carrying an `X-Burn-Intent: consume` header. The POST is
+  CORS non-simple, so a hostile page can never trigger it cross-origin (the preflight
+  fails; `Sec-Fetch-Site: cross-site` senders get a 403), and a plain GET on a one-time
+  id — an `<img>` tag, a prefetching proxy, a link-scanning bot — now always returns the
+  safe, non-consuming head. Both official clients (web + CLI) use the new endpoint;
+  `GET /api/paste/:id?meta=1` now returns a ciphertext-free head for every storage class,
+  as SPEC §10 always promised.
+- **Two protocol errata, applied to both official clients** (see SPEC §1/§2 errata notes):
+  base64url decoding now accepts only the canonical encoding (non-zero padding bits are
+  rejected, so no two strings alias to the same id/token/key bytes), and passwords are
+  Unicode-normalized to NFC before key stretching, so the same password typed on macOS
+  (NFD input) and Windows (NFC) unlocks the same note.
+- **Irreversible success-screen actions now confirm.** "Open link" (which consumes a
+  one-time note) and "Delete now" are two-step: the first press re-labels the button with
+  the destructive effect ("Uses the one view — open?" / "Permanently delete?"), a second
+  press within 5 s confirms, and the button disarms on timeout or focus loss.
+- **New-note passwords are typed twice.** The password modal gained a confirmation field
+  (mismatch is caught before sealing — a typo'd password would permanently lock a
+  one-time note) and a practical 128-character cap.
+- **Hostile pastes can no longer freeze the viewer's tab:** syntax highlighting and
+  Markdown rendering enforce a render budget (300 KB / 30k nodes); beyond it content is
+  shown verbatim as plain text instead of minting hundreds of thousands of DOM nodes.
+- **CLI: user aborts (Ctrl+C, Esc at the menu) now exit 130** (the conventional
+  128+SIGINT code) instead of 2, so scripts can tell "user cancelled" from "bad
+  invocation". Network failures name the host and cause (`ECONNREFUSED`, DNS, TLS)
+  instead of a bare "fetch failed"; `binthere <command> --help` prints help instead of
+  exiting 2; a bare `-f` dispatches to create like `-t` always did; `--out` files are
+  written owner-only (0600); `TERM=dumb` terminals get plain text instead of ANSI.
+
+### Fixed
+
+- **Web accessibility/UX:** view transitions move keyboard and screen-reader focus to the
+  shown view (previously focus could remain on a hidden control); informational text
+  colors were raised to WCAG AA contrast (≥ 4.5:1) in both themes and are locked by an
+  automated contrast test; the burn countdown now disables Reveal and switches to the
+  expired state the moment it hits zero, instead of leaving a doomed button enabled.
+- **CLI terminal robustness:** the hidden secret prompt reassembles multi-byte UTF-8
+  split across raw-mode chunks and backspaces whole code points (half a surrogate pair
+  silently derived a different key); keystrokes typed during the wizard intro no longer
+  echo over the animation or leak into the first menu read; Ctrl+C on the burn
+  confirmation prompt is a defined "no".
+- **A bad link no longer burns a passwordless one-time note:** the web client now verifies
+  the key from the link against the note's wrapped key *before* the destructive read, so a
+  truncated or corrupted link fails with "the note was not opened and still exists" instead
+  of destroying an unreadable note. The verified key is reused for the final decrypt, which
+  also removes a duplicated (deliberately slow) key derivation from the password-protected
+  reveal, and the key fragment is scrubbed from the address bar once a one-time note is
+  revealed.
+- **Password screen re-entry race:** rapid Enter presses could start a second password
+  verification while one was already in flight; on a password-protected one-time note the two
+  destructive reads raced and the reader could land on the "already opened" screen instead of
+  the decrypted note (the server's single-consumer guarantee was never at risk). The submit
+  handler is now guarded against re-entry — exactly one consuming read per unlock, and a wrong
+  password still leaves the note intact and retryable.
+
+### Added
+
+- **Dismissible announcement bar** on the landing page linking to the launch blog post
+  (hidden for returning visitors who dismissed it).
+- **DOM-mount test project** (happy-dom): the `createElement`/`textContent` sink
+  discipline — the load-bearing XSS defense — is now asserted against a real DOM with
+  adversarial fixtures, alongside the focus-management and color-contrast checks.
+  Coverage thresholds (80% statements / 70% branches) are enforced in the workerd suite.
+- **Release automation:** pushing a `cli-v*` tag runs the full suites and publishes the
+  CLI to npm with provenance (`.github/workflows/release.yml`).
+
+- **Official CLI** (`cli/`, published to npm as `binthere`): create, get, and delete notes
+  from the terminal. Second client of the same frozen protocol v1 — encryption is local
+  (Node ≥ 20 WebCrypto + `CompressionStream`), only ciphertext is uploaded, and the SPEC §11
+  vectors are re-verified in plain Node. Zero runtime dependencies.
+  - **Website-parity lifecycle:** every note is burn-after-read and expires in 24 hours
+    (`bar: true, expire: '1day'`), exactly like the web client — no expiry/burn flags.
+  - **Full-screen interactive wizard:** a bare `binthere` on a terminal opens a branded
+    menu (hand-rolled ANSI, still zero dependencies) — a left-aligned gradient wordmark
+    that materialises in on startup (each glyph flickers ░ → ▒ → █ on its own random
+    delay over ~0.9 s, TTY-only) with a wax-red ember dotting the "i" (smouldering while
+    the menu idles), described
+    menu items in a rounded hairline box, and taglines; arrow keys /
+    `1`–`3` hotkeys pick **Create**, **View**, or **Delete**, and each action opens its
+    own screen. Create lets
+    you write the note and seal it with **Ctrl+Q** (optional password with confirmation),
+    shows a braille
+    spinner while encrypting and uploading, then clears the typed note and prints the
+    share link on stdout plus a scannable compact braille
+    **terminal QR code** and the delete token on stderr — `binthere | clip` still copies
+    only the link. While the result screen waits, a slanted **shine beam periodically
+    sweeps the wordmark** (every 7 s, repainted in place; TTY-only, skipped if the screen
+    scrolled). On the result screen, **`c` copies the link and `t` the delete token**
+    to the system clipboard (native tool — `clip`/`pbcopy`/`wl-copy`/`xclip`/`xsel`,
+    `clip.exe` under WSL — fed
+    over stdin, with an OSC 52 escape fallback for SSH; still zero dependencies).
+    View and Delete reuse the exact `get`/`delete` command flows, so the
+    safe burn ordering is shared. Colors follow the website palette with truecolor →
+    16-color → `NO_COLOR`/non-TTY degradation. `--qr` adds a larger half-block QR to scripted `create`.
+  - Reads mirror the browser's safe burn flow: non-consuming `?meta=1` peek → password
+    verification **before** the destructive read → confirmation → consume. A wrong password
+    never burns the note; old non-burn `k…` links still decrypt.
+  - Passwords and delete tokens are never accepted as flag values — hidden prompt or
+    `--password-env` / `--token-env` only. The delete token travels only in the
+    `X-Delete-Token` header. `binthere get -` reads the share URL from stdin to keep the
+    fragment secret out of argv/shell history.
+  - **Quick one-liners:** `--text`/`-t` passes the note inline (`binthere -t "meet at 6"`
+    creates directly, even without piped stdin), `binthere view <url>` is an alias for
+    `get`, and common flags gained short forms (`-f` file, `-o` out, `-y` yes, `-j` json,
+    `-q` qr, `-s` server).
+  - `cli/vendor/` holds byte-identical copies of `public/js/{bytes,format,crypto,qrcode}.js`
+    (npm cannot pack outside the package root; `qrcode.js` lands as `qrcode.cjs` for Node's
+    CommonJS loader); a drift test fails CI on any divergence and
+    `node cli/scripts/sync-shared.mjs` re-aligns them.
+  - A Node-environment test suite (frozen vectors, URL parsing, mocked-API round trips
+    incl. burn-ordering and wrong-token assertions, wizard/menu e2e, TUI renderers incl.
+    the intro and shine-sweep animations, QR rendering, failure paths and raw-mode
+    prompts) runs as a second vitest project via `npm test` / `npm run test:cli`.
 
 ## [1.0.0] — 2026-07-18
 

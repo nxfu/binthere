@@ -107,11 +107,28 @@ in-browser end-to-end encryption delivered over the web, binthere included. Miti
 (HTTPS-only, strict CSP, minimal first-party surface, no third-party code) reduce but cannot
 eliminate this trust.
 
+### The CLI client
+
+The official CLI (`cli/`, npm package `binthere`) is a **second client of the same frozen
+protocol**: it runs the vendored copies of the shared crypto/format modules in Node ≥ 20 and
+is tested against the same `SPEC.md` §11 vectors. The zero-knowledge boundary is identical —
+encryption is local and the fragment secret is never sent. Differences from the browser
+client worth knowing:
+
+- The §4 deployment-compromise limitation does **not** apply in the same way: the CLI's code
+  is installed from npm and pinned locally, not re-downloaded from the paste server on every
+  use. Its trust anchor is the npm supply chain instead (mitigated by zero runtime
+  dependencies).
+- Share URLs passed as command-line arguments are visible to other local processes and may
+  enter shell history; `binthere get -` (URL on stdin) avoids this. Passwords and delete
+  tokens are never accepted as flag values — hidden prompt or environment variable only.
+
 ## 5. Trust boundaries
 
 | Boundary | Trusted with plaintext? | Notes |
 |---|---|---|
 | The user's browser + the served JS | **Yes** (unavoidable) | See the deployment-compromise limitation, §4. |
+| The CLI process + its installed code | **Yes** (unavoidable) | Installed from npm, not served by the paste server — see "The CLI client", §4. |
 | Network in transit | No | TLS protects transport; the fragment is never sent regardless. |
 | Cloudflare Worker / edge | No (plaintext) | Sees ciphertext + metadata (§3). |
 | KV store / `BurnPaste` DO | No (plaintext) | Stores ciphertext + `SHA-256(deleteToken)` + metadata. |
@@ -123,6 +140,25 @@ Paste creation is rate-limited using Cloudflare's native Workers Rate Limiting b
 by client IP. This is **abuse mitigation, not authentication**, and is **fail-open**: if the
 limiter is unavailable, requests are allowed rather than blocked. Limits are documented in
 `SPEC.md`/`wrangler.toml`.
+
+### API surface hardening
+
+- **No CORS headers, deliberately.** The API never sends `Access-Control-Allow-Origin`, so
+  browsers on other origins cannot read API responses. Both official clients need no CORS:
+  the web app is same-origin and the CLI is not subject to the browser's CORS model. Adding
+  CORS would only widen the abuse surface (third-party pages driving reads/creates from a
+  visitor's browser and network).
+- **`POST /api/paste` requires `Content-Type: application/json`** (else `415`). A cross-origin
+  `application/json` POST is not a CORS "simple request", so the browser sends a preflight —
+  which fails without CORS headers. A hostile page therefore cannot spend a visitor's creation
+  quota (or create pastes from their IP) with a no-preflight `text/plain` POST. Both official
+  clients already send the correct header.
+- **Burn consumption is never a simple request.** `GET` on a burn id only ever returns the
+  non-consuming head; the single destructive read is `POST /api/paste/:id/consume` with the
+  custom `X-Burn-Intent: consume` header (CORS non-simple ⇒ cross-origin preflight fails), and
+  `Sec-Fetch-Site: cross-site` senders are rejected with `403`. Merely knowing a burn id —
+  via an `<img>` tag, a prefetching proxy, or a link-scanning bot — grants no power to destroy
+  the note.
 
 ## 7. Cryptographic summary
 
