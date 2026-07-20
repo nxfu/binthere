@@ -5,7 +5,7 @@
 // holds, highlighting can only mis-color — never drop, duplicate, or alter the
 // decrypted content. We also check the classifier and the code/prose heuristic.
 import { describe, it, expect } from 'vitest';
-import { tokenize, looksLikeCode } from '../public/js/highlight.js';
+import { tokenize, looksLikeCode, highlightTokens, MAX_HIGHLIGHT_BYTES, MAX_HIGHLIGHT_SPANS } from '../public/js/highlight.js';
 
 const roundtrips = (s) => tokenize(s).map((t) => t.value).join('') === s;
 
@@ -76,5 +76,29 @@ describe('looksLikeCode — heuristic', () => {
   it('tolerates non-string input', () => {
     expect(looksLikeCode(null)).toBe(false);
     expect(looksLikeCode(undefined)).toBe(false);
+  });
+});
+
+describe('render budget — hostile pastes must not explode the DOM (#13)', () => {
+  it('returns tokens for ordinary code within budget', () => {
+    const toks = highlightTokens('function add(a, b) {\n  return a + b;\n}');
+    expect(Array.isArray(toks)).toBe(true);
+    expect(toks.map((t) => t.value).join('')).toBe('function add(a, b) {\n  return a + b;\n}');
+  });
+
+  it('bails to null above the byte budget', () => {
+    expect(highlightTokens('x'.repeat(MAX_HIGHLIGHT_BYTES + 1))).toBeNull();
+  });
+
+  it('bails to null when punctuation-dense input would mint too many spans', () => {
+    // Every char is a non-text token → span count == length, far over budget
+    // while staying under the byte cap.
+    expect(highlightTokens(';'.repeat(MAX_HIGHLIGHT_SPANS * 2))).toBeNull();
+  });
+
+  it('stays fast on the worst allowed input', () => {
+    const t0 = performance.now();
+    highlightTokens(';{}()=+-'.repeat(MAX_HIGHLIGHT_BYTES / 8));
+    expect(performance.now() - t0).toBeLessThan(2000);
   });
 });

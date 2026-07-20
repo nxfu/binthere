@@ -28,8 +28,8 @@
   --rule-3: #a4a49c;         /* emphasized rule */
   --ink: #1c2733;            /* primary text — iron-gall, not pure black */
   --ink-2: #4c5a66;          /* secondary text */
-  --ink-3: #707c87;          /* tertiary: eyebrows, meta, placeholders */
-  --ink-4: #9aa4ad;          /* faint: watermark (decorative only) */
+  --ink-3: #5b6773;          /* tertiary: eyebrows, meta, placeholders (≥4.5:1 on every surface — WCAG AA) */
+  --ink-4: #9aa4ad;          /* faint: watermark, separator dots (decorative only — never text) */
 
   --accent: #2e5472;         /* iron-gall blue — the one owned hue */
   --accent-fill: #2e5472;    /* primary action fill */
@@ -63,7 +63,7 @@ html.dark {
   --rule-3: #4a5a68;
   --ink: #e8ecef;
   --ink-2: #97a5b0;
-  --ink-3: #66727e;
+  --ink-3: #8b96a2;
   --ink-4: #49535d;
 
   --accent: #8fb3cc;
@@ -232,6 +232,9 @@ html.dark .theme-toggle .ico-moon { display: block; }
 .btn:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--ring); }
 .btn.danger { color: var(--seal); }
 .btn.danger:hover { border-color: color-mix(in oklab, var(--rule-2), var(--seal) 45%); background: color-mix(in oklab, var(--paper), var(--seal) 8%); }
+/* Armed = first press of a two-step irreversible action (see armConfirm):
+   the label now names the destructive effect, so paint it in seal red. */
+.btn.armed { color: var(--seal); border-color: color-mix(in oklab, var(--rule-2), var(--seal) 45%); background: color-mix(in oklab, var(--paper), var(--seal) 8%); }
 
 .send { display: inline-flex; align-items: center; gap: .5rem; padding: .5rem .9rem .5rem 1rem; min-height: 40px; background: var(--accent-fill); color: var(--accent-fg);
   border: 1px solid var(--accent-fill); border-radius: 3px; font-family: var(--sans); font-weight: 500; font-size: .8125rem; letter-spacing: .01em;
@@ -278,6 +281,7 @@ html.dark .theme-toggle .ico-moon { display: block; }
 .modal-title { font-family: var(--serif); font-size: 1.375rem; font-weight: 500; letter-spacing: -.01em; }
 .modal-sub { font-size: .85rem; color: var(--ink-2); margin-top: .4rem; }
 .modal-pw { display: flex; align-items: stretch; margin: 1.15rem 0 .25rem; }
+.modal-pw + .modal-pw { margin-top: .5rem; }
 .modal-pw .input { flex: 1; min-width: 0; border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .modal-msg { padding: .5rem 0 0; text-align: left; }
 .modal-actions { display: flex; align-items: center; justify-content: flex-end; gap: .6rem; margin-top: 1.15rem; }
@@ -383,7 +387,7 @@ html.dark .theme-toggle .ico-moon { display: block; }
 
 .foot { margin-top: auto; padding-top: 3rem; text-align: center; }
 .foot p { font-family: var(--sans); font-size: .78rem; color: var(--ink-3); letter-spacing: .01em; }
-.foot .foot-crypto { font-family: var(--mono); font-size: .7rem; letter-spacing: .04em; color: var(--ink-4); margin-top: .3rem; }
+.foot .foot-crypto { font-family: var(--mono); font-size: .7rem; letter-spacing: .04em; color: var(--ink-3); margin-top: .3rem; }
 .foot-crypto .foot-frag { color: var(--accent); }
 .foot-links { display: flex; flex-wrap: wrap; justify-content: center; gap: .4rem 1rem; margin-top: .7rem; }
 .foot-links a { font-family: var(--mono); font-size: .74rem; color: var(--ink-2); letter-spacing: .02em; transition: color .14s ease; }

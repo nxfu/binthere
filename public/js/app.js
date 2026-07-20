@@ -3,9 +3,9 @@
 // decrypted content via DOM construction only. The fragment key never leaves the
 // browser and is never placed in a network request.
 
-import { encryptPaste, decryptPaste, deriveContentKey, PasswordRequired } from './crypto.js';
-import { createPaste, fetchPaste, fetchPasteMeta, deletePaste, ApiError } from './api.js';
-import { validateHead, EXPIRE_SECONDS } from './format.js';
+import { encryptPaste, decryptPaste, decryptContent, deriveContentKey, PasswordRequired } from './crypto.js';
+import { createPaste, fetchPaste, fetchPasteMeta, consumePaste, deletePaste, ApiError } from './api.js';
+import { validateHead, validatePaste, buildAAD, EXPIRE_SECONDS } from './format.js';
 import { renderMarkdown } from './markdown.js';
 import { looksLikeCode, highlightInto } from './highlight.js';
 import { $, showView, toast, copyText, flashCopied, pill } from './ui.js';
@@ -65,8 +65,9 @@ function initCreate() {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); requestCreate(); }
   });
 
-  // Every note is one-time view (bar:true) and auto-deletes within 24h (fixed
-  // expire) — there is no longer a "how long?" choice.
+  // Every note is one-time view (bar:true) and auto-deletes within 24h — a
+  // deliberate product choice, not a missing picker. The wire format (and the
+  // CLI/API) supports the full expiry range; the web client does not expose it.
   async function submitPaste(password) {
     createBtn.disabled = true;
     const label = sendTxt ? sendTxt.textContent : '';
@@ -77,10 +78,14 @@ function initCreate() {
         password,
         fmt,
         bar: true,
-        expire: $('#expire').value,
+        expire: '1day',
       });
       const { id, deletetoken } = await createPaste(body);
       const url = `${location.origin}/p/${id}#${fragment}`;
+      // Only after the server confirmed the create: the plaintext has served its
+      // purpose, so don't leave it sitting in the (now hidden) textarea. On any
+      // failure it is deliberately kept — the user must not lose their note.
+      $('#editor').value = '';
       showSuccess({ id, deletetoken, url, isBurn: true });
     } catch (e) {
       showMsg(msg, friendlyError(e));
@@ -100,15 +105,19 @@ function openPasswordModal(onSubmit) {
   if (!scrim) { onSubmit(''); return; }
 
   const input = $('#modal-password');
+  const confirmInput = $('#modal-password-confirm');
   const create = $('#pw-create');
   const cancel = $('#pw-cancel');
   const mmsg = $('#pw-modal-msg');
   const opener = document.activeElement;
   wirePeek('#modal-password', '#modal-peek');
+  wirePeek('#modal-password-confirm', '#modal-peek-confirm');
 
   const close = () => {
     scrim.hidden = true;
-    create.onclick = cancel.onclick = scrim.onclick = input.onkeydown = null;
+    input.value = ''; // don't leave the password in the hidden DOM
+    confirmInput.value = '';
+    create.onclick = cancel.onclick = scrim.onclick = input.onkeydown = confirmInput.onkeydown = null;
     document.removeEventListener('keydown', onKey);
     if (opener && typeof opener.focus === 'function') opener.focus();
   };
@@ -130,7 +139,14 @@ function openPasswordModal(onSubmit) {
     }
   };
   const submit = () => {
-    if (!input.value) { showMsg(mmsg, 'Enter a password, or cancel.'); return; }
+    if (!input.value) { showMsg(mmsg, 'Enter a password, or cancel.'); input.focus(); return; }
+    // A mistyped password permanently locks a one-time note (there is no safe
+    // way to test it afterwards — opening the link consumes the note).
+    if (input.value !== confirmInput.value) {
+      showMsg(mmsg, 'Passwords do not match — repeat the same password in both fields.');
+      confirmInput.focus();
+      return;
+    }
     const pw = input.value;
     close();
     onSubmit(pw);
@@ -139,11 +155,12 @@ function openPasswordModal(onSubmit) {
   create.onclick = submit;
   cancel.onclick = close;
   scrim.onclick = (e) => { if (e.target === scrim) close(); };
-  input.onkeydown = (e) => { if (e.key === 'Enter') submit(); };
+  input.onkeydown = confirmInput.onkeydown = (e) => { if (e.key === 'Enter') submit(); };
   document.addEventListener('keydown', onKey);
 
   mmsg.hidden = true;
   input.value = '';
+  confirmInput.value = '';
   scrim.hidden = false;
   // Focus the dialog (not the input) so the modal is reachable and the focus
   // trap works, without painting a focus ring on the field before the user
@@ -163,14 +180,16 @@ function showSuccess({ id, deletetoken, url, isBurn }) {
   $('#copy-url').onclick = async () => {
     flashCopied($('#copy-url'), (await copyText(url)) ? 'copied' : 'failed');
   };
-  $('#open-link').onclick = () => { location.href = url; };
+  // Both irreversible actions are two-step: opening a one-time link consumes it,
+  // and delete is permanent. A stray click must not kill a note about to be shared.
+  armConfirm($('#open-link'), 'Uses the one view — open?', () => { location.href = url; });
   $('#another').onclick = () => { location.href = '/'; };
 
   const delBtn = $('#delete-btn');
   const sMsg = $('#success-msg');
-  delBtn.onclick = async () => {
+  const delLabel = delBtn.textContent;
+  armConfirm(delBtn, 'Permanently delete?', async () => {
     delBtn.disabled = true;
-    const label = delBtn.textContent;
     delBtn.textContent = 'Deleting…';
     try {
       await deletePaste(id, deletetoken);
@@ -183,9 +202,33 @@ function showSuccess({ id, deletetoken, url, isBurn }) {
     } catch (e) {
       showMsg(sMsg, friendlyError(e));
       delBtn.disabled = false;
-      delBtn.textContent = label;
+      delBtn.textContent = delLabel;
     }
+  });
+}
+
+// Two-step confirmation for irreversible actions. The first activation "arms"
+// the button — its label changes in place to name the destructive effect (the
+// change is announced by screen readers since focus stays on the control); a
+// second activation within the window confirms. Disarms on timeout or blur so
+// an abandoned half-click can't linger as a landmine.
+function armConfirm(btn, armedLabel, onConfirm) {
+  const label = btn.textContent;
+  let timer = null;
+  const disarm = () => {
+    if (timer === null) return;
+    clearTimeout(timer);
+    timer = null;
+    btn.textContent = label;
+    btn.classList.remove('armed');
   };
+  btn.onclick = () => {
+    if (timer !== null) { disarm(); onConfirm(); return; }
+    btn.textContent = armedLabel;
+    btn.classList.add('armed');
+    timer = setTimeout(disarm, 5000);
+  };
+  btn.onblur = disarm;
 }
 
 function renderQr(url) {
@@ -249,25 +292,58 @@ async function initBurnView(id, fragment) {
   } else {
     // No password: an explicit "reveal" click is the consent to burn it.
     status('This note can only be viewed once.', false, { reveal: true });
-    startExpiryTimer(head.meta);
     const revealBtn = $('#reveal-burn');
     revealBtn.disabled = false;
-    revealBtn.onclick = () => {
+    // When the countdown hits zero the note is gone server-side — leaving an
+    // enabled Reveal pointing at a doomed 410 would be a lie. Transition to the
+    // expired state immediately (status() also stops and hides the timer).
+    startExpiryTimer(head.meta, () => {
+      revealBtn.disabled = true;
+      status('This note has expired — it can no longer be opened.', true);
+    });
+    revealBtn.onclick = async () => {
       revealBtn.disabled = true;
       $('#status-actions').hidden = true;
-      consumeBurn(id, fragment, '');
+      // Verify the fragment key against the peeked wrapped key BEFORE the
+      // destructive read: a truncated/corrupted link must not burn the note.
+      let cek;
+      try {
+        cek = await deriveContentKey({ adata: head.adata, wk: head.wk, fragment });
+      } catch {
+        return status('Could not decrypt this note — the link may be incomplete or corrupted. The note was not opened and still exists.', true);
+      }
+      consumeBurn(id, head, cek);
     };
   }
 }
 
-// Perform the single destructive read and render. Any password must already have
-// been verified against the peeked head, so this read is the intended reveal.
-async function consumeBurn(id, fragment, password) {
+function bytesEqual(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+// Perform the single destructive read and render. The fragment key (and any
+// password) has already been verified against the peeked head, and `cek` is the
+// unwrapped content key from that verification — reused here so the password is
+// never stretched (PBKDF2) twice and the consumed read cannot "fail late".
+async function consumeBurn(id, head, cek) {
   status('decrypting…');
   let paste;
-  try { paste = await fetchPaste(id); } catch (e) { return handleReadError(e); }
+  try { paste = await consumePaste(id); } catch (e) { return handleReadError(e); }
   try {
-    renderPaste(paste, await decryptPaste({ paste, fragment, password }));
+    paste = validatePaste(paste);
+    // Defense in depth: the consumed record must match the authenticated head we
+    // verified the key against. (GCM would reject a swap anyway — the AAD and wk
+    // are bound — but failing here is clearer and cheaper.)
+    if (paste.wk !== head.wk || !bytesEqual(buildAAD(paste.adata), buildAAD(head.adata))) {
+      throw new Error('head mismatch');
+    }
+    const result = await decryptContent({ adata: paste.adata, ct: paste.ct, cek });
+    // The note is consumed; drop the key from the address bar so a reload or a
+    // shared screenshot of the URL doesn't carry a now-useless (but real) secret.
+    if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+    renderPaste(paste, result);
   } catch {
     status('Could not decrypt this note. The link may be corrupted or altered.', true);
   }
@@ -283,9 +359,10 @@ function promptPasswordBurn(id, fragment, head) {
   wirePasswordScreen(true, async (password) => {
     // Verify the password against the peeked wrapped key WITHOUT consuming.
     // Throws PasswordRequired / DecryptError, leaving the paste intact.
-    await deriveContentKey({ adata: head.adata, wk: head.wk, fragment, password });
-    // Verified → now do the one destructive read.
-    await consumeBurn(id, fragment, password);
+    const cek = await deriveContentKey({ adata: head.adata, wk: head.wk, fragment, password });
+    // Verified → the one destructive read, reusing the already-unwrapped CEK
+    // (no second 310k-iteration PBKDF2 run).
+    await consumeBurn(id, head, cek);
   });
 }
 
@@ -306,7 +383,14 @@ function wirePasswordScreen(isBurn, verify) {
   input.value = '';
   input.focus();
 
+  // Guard the handler itself, not just the button: the Enter keydown path
+  // bypasses `disabled`, and on a burn paste a second concurrent verify would
+  // issue a second destructive read — the losing 410 could then overwrite the
+  // decrypted view. Stays latched on success (verify() replaced the view).
+  let inFlight = false;
   const submit = async () => {
+    if (inFlight) return;
+    inFlight = true;
     msg.hidden = true;
     btn.disabled = true;
     // Password key derivation (PBKDF2) takes real time — say so, like the
@@ -315,12 +399,14 @@ function wirePasswordScreen(isBurn, verify) {
     btn.textContent = 'Decrypting…';
     try {
       await verify(input.value);
+      input.value = ''; // verified — don't leave the password in the hidden DOM
     } catch (e) {
       // A GCM auth failure cannot distinguish a wrong password from a
       // corrupted/tampered link, so the message covers both honestly.
       showMsg(msg, e instanceof PasswordRequired
         ? 'Please enter a password.'
         : 'Wrong password — try again. If you are sure it is correct, the link may be corrupted or altered.');
+      inFlight = false;
       btn.disabled = false;
       btn.textContent = label;
       input.focus();
@@ -448,8 +534,9 @@ function stopExpiryTimer() {
 
 // `meta.created` (unix seconds) is set by the server on create and echoed in the
 // peek response; `expire` maps to a fixed TTL. A note with no expiry (never) or
-// missing created gets no timer rather than a bogus one.
-function startExpiryTimer(meta) {
+// missing created gets no timer rather than a bogus one. `onExpire` fires once
+// when the countdown reaches zero (possibly synchronously, if already past).
+function startExpiryTimer(meta, onExpire) {
   const box = $('#status-timer');
   const clock = $('#status-timer-clock');
   if (!box || !clock || !meta) return;
@@ -457,16 +544,22 @@ function startExpiryTimer(meta) {
   if (ttl <= 0 || !Number.isInteger(meta.created)) return;
 
   const expireAt = (meta.created + ttl) * 1000;
+  let expired = false;
   const render = () => {
     const left = Math.max(0, expireAt - Date.now());
     clock.textContent = formatDuration(left);
     // Pulse under ten minutes — a quiet "hurry" cue without shouting.
     box.classList.toggle('ending', left > 0 && left <= 600000);
-    if (left <= 0) { clearInterval(expiryTimer); expiryTimer = null; box.classList.remove('ending'); }
+    if (left <= 0) {
+      expired = true;
+      if (expiryTimer !== null) { clearInterval(expiryTimer); expiryTimer = null; }
+      box.classList.remove('ending');
+      if (onExpire) onExpire();
+    }
   };
   box.hidden = false;
   render();
-  expiryTimer = setInterval(render, 1000);
+  if (!expired) expiryTimer = setInterval(render, 1000);
 }
 
 // ms → H:MM:SS (or MM:SS under an hour). Clamps at 0 (shows "expired").

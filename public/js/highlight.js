@@ -111,13 +111,36 @@ function isCallAhead(src, i) {
 
 const CLASS = { com: 'tok-com', str: 'tok-str', num: 'tok-num', kw: 'tok-kw', fn: 'tok-fn', punc: 'tok-punc' };
 
+// Render budget: highlighting turns every non-text token into a <span>, so a
+// punctuation-heavy paste up to the 1 MiB plaintext cap could mint hundreds of
+// thousands of DOM nodes and freeze the tab on reveal. Above either budget the
+// content is still shown — as one plain text node, which browsers handle fine.
+export const MAX_HIGHLIGHT_BYTES = 300_000;
+export const MAX_HIGHLIGHT_SPANS = 30_000;
+
+/**
+ * Tokenize for highlighting, or return null when the input exceeds the render
+ * budget (too large, or would create too many element nodes). Pure; no DOM.
+ */
+export function highlightTokens(text) {
+  const src = typeof text === 'string' ? text : String(text ?? '');
+  if (src.length > MAX_HIGHLIGHT_BYTES) return null;
+  const toks = tokenize(src);
+  let spans = 0;
+  for (const t of toks) if (t.type !== 'text') spans++;
+  return spans > MAX_HIGHLIGHT_SPANS ? null : toks;
+}
+
 /**
  * Highlight `text` into `codeEl` (a <code>/<pre>), cleared first. Uses only
- * createElement + textContent — never innerHTML. Browser only.
+ * createElement + textContent — never innerHTML. Falls back to a single plain
+ * text node when the input exceeds the render budget. Browser only.
  */
 export function highlightInto(codeEl, text) {
+  const toks = highlightTokens(text);
+  if (toks === null) { codeEl.textContent = text; return; }
   codeEl.textContent = '';
-  for (const tok of tokenize(text)) {
+  for (const tok of toks) {
     if (tok.type === 'text') {
       codeEl.appendChild(document.createTextNode(tok.value));
     } else {

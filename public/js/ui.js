@@ -6,14 +6,23 @@ const VIEWS = ['view-create', 'view-success', 'view-password', 'view-paste', 'vi
 
 /** Show exactly one top-level view section, hide the rest. */
 export function showView(name) {
+  let shown = null;
   for (const id of VIEWS) {
     const el = document.getElementById(id);
-    if (el) el.hidden = id !== `view-${name}`;
+    if (el) {
+      el.hidden = id !== `view-${name}`;
+      if (!el.hidden) shown = el;
+    }
   }
   // Footer nav links belong to the landing page only; hide them elsewhere to
   // reduce clutter on paste/success/password/status views.
   const footLinks = document.getElementById('foot-links');
   if (footLinks) footLinks.hidden = name !== 'create';
+  // Keyboard/screen-reader users must not be left focused on a control that
+  // just became hidden — move focus to the shown view (sections carry
+  // tabindex="-1"). Repeated transitions to the same view (status updates)
+  // keep focus where it is; controllers may then focus a specific field.
+  if (shown && !shown.contains(document.activeElement)) shown.focus();
 }
 
 /** Transient bottom toast. */
@@ -35,18 +44,20 @@ export async function copyText(text) {
       return true;
     }
   } catch { /* fall through */ }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.className = 'clipboard-stage';
+  document.body.appendChild(ta);
   try {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.setAttribute('readonly', '');
-    ta.className = 'clipboard-stage';
-    document.body.appendChild(ta);
     ta.select();
-    const ok = document.execCommand('copy');
-    document.body.removeChild(ta);
-    return ok;
+    return document.execCommand('copy');
   } catch {
     return false;
+  } finally {
+    // The staging textarea holds the paste URL (key fragment included) — it must
+    // never be left in the DOM, even when select/execCommand throws.
+    document.body.removeChild(ta);
   }
 }
 

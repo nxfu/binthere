@@ -75,9 +75,28 @@ const RE_HR = /^\s*([-*_])(?:\s*\1){2,}\s*$/;
 const RE_ULI = /^\s*[-*+]\s+(.*)$/;
 const RE_OLI = /^\s*\d+\.\s+(.*)$/;
 
+// Render budget: a hostile paste up to the 1 MiB plaintext cap could parse into
+// hundreds of thousands of blocks/inline nodes (one-char paragraphs, dense
+// inline code) and freeze the tab when mounted. Above either budget the source
+// is rendered verbatim as a single code block — the raw view, not a data loss.
+export const MAX_MD_BYTES = 300_000;
+export const MAX_MD_NODES = 30_000;
+
+function countNodes(nodes) {
+  let n = 0;
+  for (const node of nodes) {
+    n++;
+    if (node.inline) n += countNodes(node.inline);
+    if (node.children) n += countNodes(node.children);
+    if (node.items) for (const item of node.items) n += 1 + countNodes(item);
+  }
+  return n;
+}
+
 /** Parse Markdown source into a safe block-node tree. Pure; no DOM. */
 export function parse(md) {
   const src = typeof md === 'string' ? md : String(md ?? '');
+  if (src.length > MAX_MD_BYTES) return [{ type: 'code_block', text: src }];
   const lines = src.replace(/\r\n?/g, '\n').split('\n');
   const blocks = [];
   let i = 0;
@@ -139,6 +158,9 @@ export function parse(md) {
     i++;
   }
   flushPara();
+  // Node budget (parsing is linear-fast; DOM mounting is what freezes) — bail
+  // to the verbatim code-block fallback rather than mount an enormous tree.
+  if (countNodes(blocks) > MAX_MD_NODES) return [{ type: 'code_block', text: src }];
   return blocks;
 }
 
