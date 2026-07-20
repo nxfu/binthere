@@ -111,24 +111,23 @@ function isCallAhead(src, i) {
 
 const CLASS = { com: 'tok-com', str: 'tok-str', num: 'tok-num', kw: 'tok-kw', fn: 'tok-fn', punc: 'tok-punc' };
 
-// Render budget: highlighting turns every non-text token into a <span>, so a
-// punctuation-heavy paste up to the 1 MiB plaintext cap could mint hundreds of
-// thousands of DOM nodes and freeze the tab on reveal. Above either budget the
-// content is still shown — as one plain text node, which browsers handle fine.
+// Render budget: highlighting turns EVERY token into a DOM node (spans for
+// classified tokens, individual text nodes for the rest), so a token-dense
+// paste up to the 1 MiB plaintext cap could mint hundreds of thousands of
+// nodes and freeze or jank the tab on reveal. Above either budget the content
+// is still shown — as one plain text node, which browsers handle fine.
 export const MAX_HIGHLIGHT_BYTES = 300_000;
-export const MAX_HIGHLIGHT_SPANS = 30_000;
+export const MAX_HIGHLIGHT_NODES = 30_000;
 
 /**
  * Tokenize for highlighting, or return null when the input exceeds the render
- * budget (too large, or would create too many element nodes). Pure; no DOM.
+ * budget (too large, or would create too many DOM nodes). Pure; no DOM.
  */
 export function highlightTokens(text) {
   const src = typeof text === 'string' ? text : String(text ?? '');
   if (src.length > MAX_HIGHLIGHT_BYTES) return null;
   const toks = tokenize(src);
-  let spans = 0;
-  for (const t of toks) if (t.type !== 'text') spans++;
-  return spans > MAX_HIGHLIGHT_SPANS ? null : toks;
+  return toks.length > MAX_HIGHLIGHT_NODES ? null : toks;
 }
 
 /**

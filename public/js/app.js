@@ -140,6 +140,13 @@ function openPasswordModal(onSubmit) {
   };
   const submit = () => {
     if (!input.value) { showMsg(mmsg, 'Enter a password, or cancel.'); input.focus(); return; }
+    // Practical cap, enforced VISIBLY — never via maxlength, whose silent
+    // truncation could seal the note with a password the reader doesn't have.
+    if (input.value.length > 128) {
+      showMsg(mmsg, 'Password is too long — 128 characters max.');
+      input.focus();
+      return;
+    }
     // A mistyped password permanently locks a one-time note (there is no safe
     // way to test it afterwards — opening the link consumes the note).
     if (input.value !== confirmInput.value) {
@@ -489,7 +496,12 @@ function wirePeek(inputSel, btnSel) {
   const input = $(inputSel);
   const btn = $(btnSel);
   if (!input || !btn) return;
-  btn.setAttribute('aria-pressed', String(input.type !== 'password'));
+  // Re-wiring means a fresh entry (modal reopened, password screen shown):
+  // always start masked, even if the field was left revealed last time.
+  input.type = 'password';
+  btn.textContent = 'show';
+  btn.setAttribute('aria-label', 'Show password');
+  btn.setAttribute('aria-pressed', 'false');
   btn.onclick = () => {
     const show = input.type === 'password';
     input.type = show ? 'text' : 'password';

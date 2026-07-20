@@ -99,6 +99,10 @@ body::before { content: ''; position: fixed; inset: 0; z-index: 0; pointer-event
   -webkit-mask-image: radial-gradient(120% 80% at 50% 0%, #000 30%, transparent 78%); }
 a { color: var(--ink); text-decoration: none; transition: color .14s ease; }
 :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+/* View sections are programmatic focus targets only (showView moves focus to
+   them for keyboard/SR continuity; tabindex="-1" keeps them out of the Tab
+   order). A focus ring around an entire view is noise, not affordance. */
+.wrap > section:focus, .wrap > section:focus-visible { outline: none; }
 ::selection { background: var(--accent-fill); color: var(--accent-fg); }
 .mono { font-family: var(--mono); }
 [hidden] { display: none !important; }

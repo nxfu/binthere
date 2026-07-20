@@ -116,7 +116,7 @@ describe('highlightInto — mounted tree is inert', () => {
     expect(code.textContent).toBe(big);
   });
 
-  it('punctuation-dense input under the byte cap still falls back (span budget)', () => {
+  it('punctuation-dense input under the byte cap still falls back (node budget)', () => {
     const code = document.createElement('code');
     const dense = ';{}()'.repeat(20_000); // 100k non-text tokens > span budget
     highlightInto(code, dense);

@@ -195,7 +195,7 @@ describe('base64url canonicity (SPEC §1 errata) — fail closed on aliasing enc
 
   it('rejects non-canonical encodings (non-zero unused bits in the final char)', () => {
     // Each would silently alias the canonical string to the same bytes.
-    for (const bad of ['Zh', 'AB', 'Zm9', 'AAB', '_-_-B']) {
+    for (const bad of ['Zh', 'AB', 'Zm9', 'AAB', 'A_', 'AA_']) {
       expect(() => bytesFromB64url(bad), bad).toThrow(/invalid base64url/);
     }
   });

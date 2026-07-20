@@ -5,7 +5,7 @@
 // holds, highlighting can only mis-color — never drop, duplicate, or alter the
 // decrypted content. We also check the classifier and the code/prose heuristic.
 import { describe, it, expect } from 'vitest';
-import { tokenize, looksLikeCode, highlightTokens, MAX_HIGHLIGHT_BYTES, MAX_HIGHLIGHT_SPANS } from '../public/js/highlight.js';
+import { tokenize, looksLikeCode, highlightTokens, MAX_HIGHLIGHT_BYTES, MAX_HIGHLIGHT_NODES } from '../public/js/highlight.js';
 
 const roundtrips = (s) => tokenize(s).map((t) => t.value).join('') === s;
 
@@ -90,10 +90,16 @@ describe('render budget — hostile pastes must not explode the DOM (#13)', () =
     expect(highlightTokens('x'.repeat(MAX_HIGHLIGHT_BYTES + 1))).toBeNull();
   });
 
-  it('bails to null when punctuation-dense input would mint too many spans', () => {
-    // Every char is a non-text token → span count == length, far over budget
+  it('bails to null when punctuation-dense input would mint too many nodes', () => {
+    // Every char is its own token → node count == length, far over budget
     // while staying under the byte cap.
-    expect(highlightTokens(';'.repeat(MAX_HIGHLIGHT_SPANS * 2))).toBeNull();
+    expect(highlightTokens(';'.repeat(MAX_HIGHLIGHT_NODES * 2))).toBeNull();
+  });
+
+  it('bails to null when TEXT-token-dense input would mint too many nodes', () => {
+    // Identifiers + whitespace produce only text tokens (no spans), but every
+    // one still becomes its own DOM node — the budget must count them too.
+    expect(highlightTokens('ab '.repeat(MAX_HIGHLIGHT_NODES))).toBeNull();
   });
 
   it('stays fast on the worst allowed input', () => {
