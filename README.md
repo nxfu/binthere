@@ -267,7 +267,7 @@ the server stores and compares only its SHA-256.
 
 ```
 public/            static frontend (CSP-clean; served by Workers Static Assets)
-  index.html  css/styles.css  js/*.js  fonts/*.woff2  img/favicon.svg
+  index.html  css/styles.css  js/*.js  fonts/*.woff2  img/ (favicon.svg + png fallbacks)
   _headers  robots.txt  opengraph.png  .well-known/security.txt
 src/
   index.js         Worker: /api/paste routing + asset fallback

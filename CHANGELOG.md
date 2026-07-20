@@ -6,7 +6,15 @@ versioned separately from the application (see [`SPEC.md`](./SPEC.md), currently
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **New favicon.** The tab icon is now a simplified guilloché rosette in iron-gall blue
+  on Plate paper — drawn from the same mark as the watermark and seal — replacing the
+  pre-Iron-Gall brackets-and-keyhole placeholder. It follows the browser's
+  `prefers-color-scheme`, flipping to the light Archive palette on light UIs
+  (`tools/favicon-check.html` previews it at tab-strip sizes). PNG fallbacks ship
+  alongside it — a 32px tile for Safari (which ignores SVG favicons) and a 180px
+  full-bleed `apple-touch-icon` for iOS home screens.
 
 ## [1.1.0] — 2026-07-20
 
