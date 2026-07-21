@@ -1,21 +1,16 @@
 <div align="center">
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="public/img/wordmark-dark.svg">
-    <img src="public/img/wordmark.svg" width="220" alt="binthere wordmark">
-  </picture>
+  <img src="public/img/wordmark-dark.svg" width="275" alt="binthere wordmark">
 </p>
 
-<h1 align="center">bin*there*</h1>
-
-<p align="center"><strong>Say it once. <em>Sealed.</em></strong></p>
+<h1 align="center"><strong>Say it once. <em>Sealed.</em></strong></h1>
 
 <p align="center">Zero-knowledge, end-to-end encrypted notes that disappear after one read.</p>
 
 <p align="center">
-  <a href="https://binthere.gaury.dev"><strong>Try it live</strong></a> ·
-  <a href="https://www.npmjs.com/package/binthere"><strong>Install the CLI</strong></a> ·
+  <a href="https://binthere.gaury.dev">Try it live</a> ·
+  <a href="https://www.npmjs.com/package/binthere">Install the CLI</a> ·
   <a href="./SPEC.md">Documentation</a> ·
   <a href="https://github.com/nxfu/binthere/issues">Report a bug</a>
 </p>
@@ -28,11 +23,13 @@ everything with AES-256-GCM **before** it leaves your device, so the server only
 ciphertext it can't read. Think of it as a self-destructing envelope for text: secrets,
 credentials, a private message, a snippet of code.
 
-<a href="./.nvmrc"><img alt="Node.js" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/NodeJS/nodejs3.svg"></a>
-<img alt="JavaScript" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/Javascript/javascript3.svg">
-<img alt="HTML" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/HTML/html3.svg">
-<img alt="CSS" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/CSS/css3.svg">
-<a href="./eslint.config.js"><img alt="ESLint" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/ESLint/eslint3.svg"></a>
+<p align="center">
+  <a href="./.nvmrc"><img alt="Node.js" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/NodeJS/nodejs3.svg"></a>
+  <img alt="JavaScript" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/Javascript/javascript3.svg">
+  <img alt="HTML" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/HTML/html3.svg">
+  <img alt="CSS" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/CSS/css3.svg">
+  <a href="./eslint.config.js"><img alt="ESLint" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/ESLint/eslint3.svg"></a>
+</p>
 
 ## Why binthere?
 
