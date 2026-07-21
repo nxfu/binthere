@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 80" width="260" height="80" role="img" aria-label="binthere">
+  <!-- Transparent wordmark, light-theme (Archive) colors. Hardcoded fills — no <style>/var() —
+       because GitHub's SVG sanitizer strips style blocks. Dark variant: wordmark-dark.svg. -->
+  <text x="130" y="54" text-anchor="middle" font-family="Newsreader, Georgia, 'Times New Roman', serif" font-size="40" letter-spacing="-0.4"><tspan fill="#1c2733" font-weight="500">bin</tspan><tspan fill="#2e5472" font-style="italic">there</tspan></text>
+</svg>

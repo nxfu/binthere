@@ -1,15 +1,32 @@
-# bin*there*
-![binthere — say it once, sealed. End-to-end encrypted notes that disappear.](public/cli-preview.png)
+<div align="center">
 
-Say it once. *Sealed.* — write. share. gone.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="public/img/wordmark-dark.svg">
+    <img src="public/img/wordmark.svg" width="220" alt="binthere wordmark">
+  </picture>
+</p>
 
-**Project**
+<h1 align="center">bin*there*</h1>
 
-<a href="https://github.com/nxfu/binthere/issues"><img alt="Issues" height="28" src="https://m3-markdown-badges.vercel.app/issues/6/2/nxfu/binthere"></a>
-<a href="https://github.com/nxfu/binthere/stargazers"><img alt="Stars" height="28" src="https://m3-markdown-badges.vercel.app/stars/6/2/nxfu/binthere"></a>
-<a href="./LICENSE"><img alt="MIT License" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/LicenceMIT/licencemit3.svg"></a>
+<p align="center"><strong>Say it once. <em>Sealed.</em></strong></p>
 
-**Stack**
+<p align="center">Zero-knowledge, end-to-end encrypted notes that disappear after one read.</p>
+
+<p align="center">
+  <a href="https://binthere.gaury.dev"><strong>Try it live</strong></a> ·
+  <a href="https://www.npmjs.com/package/binthere"><strong>Install the CLI</strong></a> ·
+  <a href="./SPEC.md">Documentation</a> ·
+  <a href="https://github.com/nxfu/binthere/issues">Report a bug</a>
+</p>
+
+</div>
+
+binthere is a zero-knowledge, end-to-end encrypted pastebin. Write a note, get a link,
+share it — and the note self-destructs the moment it's read. Your browser encrypts
+everything with AES-256-GCM **before** it leaves your device, so the server only ever holds
+ciphertext it can't read. Think of it as a self-destructing envelope for text: secrets,
+credentials, a private message, a snippet of code.
 
 <a href="./.nvmrc"><img alt="Node.js" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/NodeJS/nodejs3.svg"></a>
 <img alt="JavaScript" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/Javascript/javascript3.svg">
@@ -17,13 +34,7 @@ Say it once. *Sealed.* — write. share. gone.
 <img alt="CSS" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/CSS/css3.svg">
 <a href="./eslint.config.js"><img alt="ESLint" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/ESLint/eslint3.svg"></a>
 
-A zero-knowledge, end-to-end encrypted pastebin. Write a note, get a link, share it — and the
-note self-destructs the moment it's read. Your browser encrypts everything with AES-256-GCM
-**before** it leaves your device, so the server only ever holds ciphertext it can't read. Think
-of it as a self-destructing envelope for text: secrets, credentials, a private message, a
-snippet of code.
-
-**Live:** <https://binthere.gaury.dev>
+## Why binthere?
 
 binthere is a clean-room rebuild inspired by [PrivateBin](https://privatebin.info)'s
 zero-knowledge model — modern Web Crypto, a strict CSP, atomic burn-after-read, and a real
@@ -31,22 +42,17 @@ test suite, with the ~700 KB of jQuery/Bootstrap/zlib-WASM stripped out. It runs
 Cloudflare Worker (Static Assets + KV + a Durable Object), so hosting is cheap and there is no
 server to maintain.
 
-## Contents
+- **No accounts, no tracking.** Paste, share, done. There is nothing to sign up for and no
+  analytics watching you do it.
+- **Nobody can recover a lost link.** Not even the operator — there is no key to look up and
+  no index of pastes. The link is the only copy of the key, by design.
+- **Honest limits.** The server still sees IPs, timings, and ciphertext sizes (it's private,
+  not anonymous), and like all in-browser crypto it trusts the code the site serves — the
+  full threat model is in [`SECURITY.md`](./SECURITY.md) and summarized under
+  [Limitations](#limitations).
 
-- [How it works](#how-it-works)
-- [Features](#features)
-- [How it compares](#how-it-compares)
-- [Quick start](#quick-start)
-- [CLI](#cli)
-- [Deployment](#deployment)
-- [Architecture](#architecture)
-- [Limitations](#limitations)
-- [FAQ](#faq)
-- [Roadmap](#roadmap)
-- [Security](#security)
-- [Contributing](#contributing)
-- [Acknowledgements](#acknowledgements)
-- [License](#license)
+Pick binthere if you want a paste service you can deploy in one command with nothing to
+patch, back up, or keep online yourself.
 
 ## How it works
 
@@ -76,17 +82,6 @@ Every note is **one-time view**: the first reader atomically consumes it (exactl
 even under simultaneous clicks — a Durable Object guarantees it), and everyone after gets
 `410 Gone`. Unread notes self-delete after 24 hours regardless.
 
-What this means in practice:
-
-- **No accounts, no tracking.** Paste, share, done. There is nothing to sign up for and no
-  analytics watching you do it.
-- **Nobody can recover a lost link.** Not even the operator — there is no key to look up and
-  no index of pastes. The link is the only copy of the key, by design.
-- **Honest limits.** The server still sees IPs, timings, and ciphertext sizes (it's private,
-  not anonymous), and like all in-browser crypto it trusts the code the site serves — the
-  full threat model is in [`SECURITY.md`](./SECURITY.md) and summarized under
-  [Limitations](#limitations).
-
 ## Features
 
 | Feature | Details |
@@ -115,10 +110,7 @@ they are hosted and what they optimize for:
 | [Yopass](https://github.com/jhaals/yopass) | Go | Memcached / Redis | Secret-sharing focus, CLI client |
 | [cryptgeon](https://github.com/cupcakearmy/cryptgeon) | Rust | Redis | File sharing, view limits |
 
-Pick binthere if you want a paste service you can deploy in one command with nothing to
-patch, back up, or keep online yourself.
-
-## Quick start
+## Getting started
 
 Requires Node.js ≥ 20 (`.nvmrc` pins 22).
 
@@ -147,53 +139,18 @@ CI runs lint, a byte-for-byte test-vector diff, and the full suite.
 
 An official command-line client lives in [`cli/`](./cli) and is published to npm as
 [`binthere`](https://www.npmjs.com/package/binthere). It implements the same frozen protocol
-as the web client — encryption happens locally, only ciphertext is uploaded, and the key
-never leaves your machine except inside the printed share URL. Notes have the same lifecycle
-as the website: **every note deletes after one read, or after 24 hours**.
+as the web client — encryption happens locally, only ciphertext is uploaded, and notes have
+the same **one read / 24 hours** lifecycle as the website. Zero runtime dependencies
+(Node ≥ 20 built-ins only).
 
 ```bash
 npm install -g binthere    # or try it without installing anything: npx binthere
 ```
 
-On a terminal, a bare `binthere` takes over the screen with an interactive menu:
-
-```text
-     ✦
- ██▄ █ █▄ █ ▀█▀ █▄█ ██▀ █▀▄ ██▀
- █▄█ █ █ ▀█  █  █ █ █▄▄ █▀▄ █▄▄
-
- Zero-knowledge encrypted notes.
- encrypted locally · one read · gone in 24 hours
-
- ╭───────────────────────────────────────────────────────────╮
- │ ❯ 1 Create a note   write, seal, and get a one-time link  │
- │   2 View a note     paste a share URL — reading burns it  │
- │   3 Delete a note   remove it early with the delete token │
- ╰───────────────────────────────────────────────────────────╯
-
- ↑↓ move  ·  ↵ select  ·  1-3 jump  ·  ^c quit
-```
-
-Pick an action with ↑/↓ (or the `1`–`3` hotkeys) and hit enter. Writing a note, **Ctrl+Q**
-seals it; the result screen shows the share link, a scannable terminal QR code, and the
-delete token — press **c** to copy the link to the clipboard, **t** for the token.
-
-Piping works too — decoration draws on stderr, so stdout stays machine-readable:
-
-```bash
-git diff | npx binthere                # encrypt stdin → share URL (create is the default)
-npx binthere get '<share-url>'         # fetch + decrypt (safe burn flow, like the browser)
-npx binthere delete <share-url-or-id>  # delete with the token from create time
-```
-
-Zero runtime dependencies (Node ≥ 20 built-ins only). Passwords and delete tokens are never
-accepted as flag values — hidden prompt or env var only — and the password is verified
-*before* the destructive read, exactly like the browser. See [`cli/README.md`](./cli/README.md)
-for the full command reference and security notes (including why `binthere get -` exists).
-
-The CLI's `cli/vendor/` modules are byte-identical copies of
-`public/js/{bytes,format,crypto,qrcode}.js`; a drift test fails CI if they ever diverge
-(`node cli/scripts/sync-shared.mjs` re-aligns).
+A bare `binthere` opens an interactive full-screen menu; it also composes in pipelines
+(`git diff | npx binthere` prints a share URL on stdout). See
+[`cli/README.md`](./cli/README.md) for the full command reference, interactive-mode tour,
+and security notes.
 
 ## Deployment
 
@@ -267,7 +224,7 @@ the server stores and compares only its SHA-256.
 
 ```
 public/            static frontend (CSP-clean; served by Workers Static Assets)
-  index.html  css/styles.css  js/*.js  fonts/*.woff2  img/ (favicon.svg + png fallbacks)
+  index.html  css/styles.css  js/*.js  fonts/*.woff2  img/ (favicon.svg + png fallbacks + wordmark[-dark].svg)
   _headers  robots.txt  favicon.ico  opengraph.png  .well-known/security.txt
 src/
   index.js         Worker: /api/paste routing + asset fallback
@@ -411,6 +368,14 @@ Issues and PRs are welcome — see [`CONTRIBUTING.md`](./CONTRIBUTING.md). Two h
 Run `npm run lint` and `npm test` before opening a PR; all suites run in the real `workerd`
 runtime.
 
+## Tech stack
+
+- [Cloudflare Workers](https://workers.cloudflare.com/) — Static Assets, KV, Durable Objects, native rate limiting
+- Vanilla JavaScript (native ES modules) — no framework, no bundler for the frontend
+- [Web Crypto API](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto) — AES-256-GCM, PBKDF2-SHA256
+- [Vitest](https://vitest.dev/) — Worker suites in the real `workerd` runtime, CLI suites in Node
+- [ESLint 9](https://eslint.org/) — flat config
+
 ## Acknowledgements
 
 - [PrivateBin](https://privatebin.info) — the zero-knowledge pastebin whose model this is a
@@ -426,3 +391,10 @@ runtime.
 ## License
 
 [MIT](./LICENSE) © 2026 nxfu
+
+---
+
+<p align="center">
+  Built to be shared once and forgotten.<br>
+  If binthere is useful to you, consider giving it a ⭐ — it helps others find it.
+</p>
