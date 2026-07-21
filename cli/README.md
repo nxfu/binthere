@@ -1,4 +1,33 @@
-# binthere (CLI)
+<div align="center">
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/nxfu/binthere/main/public/img/wordmark-dark.svg">
+    <img src="https://raw.githubusercontent.com/nxfu/binthere/main/public/img/wordmark.svg" width="220" alt="binthere wordmark">
+  </picture>
+</p>
+
+<h1 align="center">bin<em>there</em> CLI</h1>
+
+<p align="center"><strong>Say it once. <em>Sealed.</em></strong></p>
+
+<p align="center">Zero-knowledge, end-to-end encrypted notes that disappear after one read — from your terminal.</p>
+
+<p align="center">
+  <a href="https://binthere.gaury.dev"><strong>Try it live</strong></a> ·
+  <a href="https://github.com/nxfu/binthere#readme"><strong>Project README</strong></a> ·
+  <a href="https://github.com/nxfu/binthere/blob/main/SPEC.md">Documentation</a> ·
+  <a href="https://github.com/nxfu/binthere/issues">Report a bug</a>
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/binthere"><img alt="npm" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/npm/npm3.svg"></a>
+  <a href="https://github.com/nxfu/binthere/blob/main/cli/package.json"><img alt="Node.js" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/NodeJS/nodejs3.svg"></a>
+  <img alt="JavaScript" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/Javascript/javascript3.svg">
+  <a href="./LICENSE"><img alt="MIT License" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/LicenceMIT/licencemit3.svg"></a>
+</p>
+
+</div>
 
 Command-line client for [binthere](https://github.com/nxfu/binthere) — a zero-knowledge,
 end-to-end encrypted pastebin. Content is encrypted locally with AES-256-GCM **before** any
@@ -167,3 +196,10 @@ normally cut by CI from a `cli-v*` tag; see the repo's CONTRIBUTING.md "Releasin
 ## License
 
 [MIT](./LICENSE) © 2026 nxfu
+
+---
+
+<p align="center">
+  Built to be shared once and forgotten.<br>
+  If binthere is useful to you, consider giving it a ⭐ — it helps others find it.
+</p>
