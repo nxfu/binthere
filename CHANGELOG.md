@@ -6,6 +6,16 @@ versioned separately from the application (see [`SPEC.md`](./SPEC.md), currently
 
 ## [Unreleased]
 
+### Security
+
+- **Oversized uploads are rejected incrementally, not after buffering.** `POST /api/paste`
+  now streams the request body and stops the moment the running byte count crosses `MAX_BODY`
+  (4 MiB), returning `413` without holding more than one chunk beyond the cap. Previously the
+  whole body was buffered via `request.arrayBuffer()` before its size was checked, so a client
+  that omitted or lied about `Content-Length` (e.g. a chunked upload) could make the Worker
+  materialize far more than the cap in memory. The `Content-Length` check remains as an
+  honest-client fast path. No protocol change — same 4 MiB limit, same `413` (SPEC §6).
+
 ### Changed
 
 - **New favicon.** The tab icon is now a simplified guilloché rosette in iron-gall blue

@@ -27,16 +27,6 @@ Desktop.ini
 *~
 
 # Internal / working docs — kept locally, not part of the public repo.
-TODO.md
 CLAUDE.md
 AGENTS.md
 DESIGN.md
-PLAN.md
-
-# Audit workspace (analysis only, never commit)
-.claude-audit/
-.codex-audit/
-.progress/
-.agents/
-PREP.md
-FINAL.md

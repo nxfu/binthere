@@ -159,6 +159,14 @@ limiter is unavailable, requests are allowed rather than blocked. Limits are doc
   `Sec-Fetch-Site: cross-site` senders are rejected with `403`. Merely knowing a burn id —
   via an `<img>` tag, a prefetching proxy, or a link-scanning bot — grants no power to destroy
   the note.
+- **The request body is read under a hard cap, incrementally.** `POST /api/paste` streams the
+  body and aborts as soon as the running byte count exceeds `MAX_BODY` (4 MiB), so a client
+  cannot force the Worker to buffer an oversized payload by omitting or lying about
+  `Content-Length` (chunked uploads carry no length). At most one chunk beyond the cap is ever
+  held before the stream is cancelled and a `413` returned. The `Content-Length` header, when
+  present, is used only as an honest-client fast path — never as the authoritative limit. This
+  is resource-abuse mitigation, not DoS protection (§2): Cloudflare's edge still enforces a much
+  larger account-plan body cap ahead of the Worker.
 
 ## 7. Cryptographic summary
 

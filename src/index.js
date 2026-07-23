@@ -71,6 +71,43 @@ export default {
   },
 };
 
+// Read a request body while enforcing a hard byte cap, without ever buffering
+// an attacker-sized payload. Returns the bytes as a Uint8Array, or null if the
+// stream exceeds `max` (caller answers 413). At most `max + one chunk` is held:
+// as soon as the running total crosses `max` we cancel the reader, which tells
+// the runtime to stop pulling from the socket, and bail. A null/absent body
+// (GET-style request with no payload) yields an empty Uint8Array, matching the
+// old request.arrayBuffer() behaviour (→ empty string → JSON.parse throws → 400).
+async function readCappedBody(stream, max) {
+  if (!stream) return new Uint8Array(0);
+  const reader = stream.getReader();
+  const chunks = [];
+  let received = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.byteLength;
+      if (received > max) {
+        await reader.cancel(); // terminate the stream; stop the client uploading more
+        return null;
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  // Single allocation of the exact final size; concatenate the chunks into it.
+  const out = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
+
 async function createPaste(request, env, _ctx) {
   // Requiring a real JSON media type forces a CORS preflight for cross-origin
   // browser requests: a hostile page can no longer spend a visitor's creation
@@ -86,15 +123,22 @@ async function createPaste(request, env, _ctx) {
   }
 
   // Body-size guard before parsing (defends storage + JSON parser).
+  //
+  // The Content-Length header is only an honest-client fast path: a hostile
+  // client can omit it (chunked transfer) or lie, so it can reject early but
+  // cannot be relied on. The authoritative cap is the streaming read below,
+  // which counts bytes as they arrive and aborts the moment the running total
+  // exceeds MAX_BODY — so we never buffer more than MAX_BODY + one chunk,
+  // rather than materializing an attacker-sized body via request.arrayBuffer().
   const cl = Number(request.headers.get('content-length'));
   if (Number.isFinite(cl) && cl > MAX_BODY) return err('Document is too large.', 413);
 
-  const buf = await request.arrayBuffer();
-  if (buf.byteLength > MAX_BODY) return err('Document is too large.', 413);
+  const bytes = await readCappedBody(request.body, MAX_BODY);
+  if (bytes === null) return err('Document is too large.', 413);
 
   let parsed;
   try {
-    parsed = JSON.parse(new TextDecoder().decode(buf));
+    parsed = JSON.parse(new TextDecoder().decode(bytes));
   } catch {
     return err('Invalid JSON body.', 400);
   }

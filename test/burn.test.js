@@ -219,6 +219,68 @@ describe('request validation & limits', () => {
     expect(r.status).toBe(413);
   });
 
+  it('rejects an oversized streamed body with 413 (no Content-Length to trust)', async () => {
+    // Streaming the body omits Content-Length (chunked), so the header fast path
+    // cannot fire — this exercises the incremental read cap itself. The stream
+    // yields more than MAX_BODY across several chunks; the read must abort and
+    // 413 without buffering the whole thing.
+    const chunk = new Uint8Array(1024 * 1024); // 1 MiB per pull
+    let sent = 0;
+    const stream = new ReadableStream({
+      pull(controller) {
+        if (sent >= 6 * 1024 * 1024) { controller.close(); return; } // 6 MiB total > 4 MiB cap
+        controller.enqueue(chunk);
+        sent += chunk.byteLength;
+      },
+    });
+    const r = await SELF.fetch(`${ORIGIN}/api/paste`, {
+      method: 'POST', headers: JSON_CT, body: stream, duplex: 'half' });
+    expect(r.status).toBe(413);
+  });
+
+  it('treats an empty body as invalid JSON (400), never 413/500', async () => {
+    // Bodyless POST → request.body is null → readCappedBody yields 0 bytes →
+    // JSON.parse('') throws → 400, matching the old arrayBuffer() behaviour.
+    const r = await SELF.fetch(`${ORIGIN}/api/paste`, { method: 'POST', headers: JSON_CT });
+    expect(r.status).toBe(400);
+  });
+
+  it('accepts a body of exactly MAX_BODY bytes (cap is inclusive → 400, not 413)', async () => {
+    // Exactly at the cap must pass the size gate (received > max is strict), so
+    // the request reaches JSON parsing. 4 MiB of 'a' is valid-size but not JSON,
+    // so a 400 here proves it was NOT rejected as oversized (which would be 413).
+    const chunk = new Uint8Array(1024 * 1024).fill(0x61); // 'a'
+    let sent = 0;
+    const stream = new ReadableStream({
+      pull(controller) {
+        if (sent >= 4 * 1024 * 1024) { controller.close(); return; }
+        controller.enqueue(chunk);
+        sent += chunk.byteLength;
+      },
+    });
+    const r = await SELF.fetch(`${ORIGIN}/api/paste`, {
+      method: 'POST', headers: JSON_CT, body: stream, duplex: 'half' });
+    expect(r.status).toBe(400);
+  });
+
+  it('rejects MAX_BODY + 1 streamed byte with 413', async () => {
+    // One byte over the cap on the streaming path (no Content-Length) must 413.
+    const kib = new Uint8Array(1024).fill(0x61);
+    let sent = 0;
+    const total = 4 * 1024 * 1024 + 1;
+    const stream = new ReadableStream({
+      pull(controller) {
+        if (sent >= total) { controller.close(); return; }
+        const n = Math.min(kib.byteLength, total - sent);
+        controller.enqueue(kib.subarray(0, n));
+        sent += n;
+      },
+    });
+    const r = await SELF.fetch(`${ORIGIN}/api/paste`, {
+      method: 'POST', headers: JSON_CT, body: stream, duplex: 'half' });
+    expect(r.status).toBe(413);
+  });
+
   it('rejects an oversized ct with 413 (not a 400 format error)', async () => {
     const { body } = await encryptPaste({ text: 'x' });
     body.ct = 'A'.repeat(3000004); // > MAX_CT_B64, body still under 4 MiB
