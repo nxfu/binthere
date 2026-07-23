@@ -149,7 +149,14 @@ A bare `binthere` opens an interactive full-screen menu; it also composes in pip
 [`cli/README.md`](./cli/README.md) for the full command reference, interactive-mode tour,
 and security notes.
 
-## Deployment
+## Self-hosting
+
+You can run your own binthere — nothing about the design ties it to the public instance, and
+there is no managed service in the loop. Because it's a single Cloudflare Worker (Static
+Assets + KV + a Durable Object), it's **optimized for Cloudflare Workers** and one of its
+biggest advantages is cost: a complete instance fits inside
+[Cloudflare's free tier](https://developers.cloudflare.com/workers/platform/pricing/), so you
+can host binthere **completely free**.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/nxfu/binthere)
 
@@ -268,7 +275,7 @@ Most of these are deliberate scope choices, not bugs. Know them before relying o
 - **English only.**
 - **The rate limiter fails open** — it is abuse mitigation, not access control.
 - **Canonical URLs are hardcoded** to the origin deployment; update them when self-hosting
-  (see [Deployment](#deployment)).
+  (see [Self-hosting](#self-hosting)).
 
 </details>
 

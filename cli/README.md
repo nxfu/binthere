@@ -158,6 +158,34 @@ HTTPS is enforced for every server except `localhost` / `127.0.0.1` (for `wrangl
 **Exit codes:** `0` ok · `1` crypto/API error · `2` usage error. Distinct messages
 distinguish "not found / expired" (404) from "already burned" (410).
 
+### Self-hosted instances
+
+The CLI defaults to the public server at `https://binthere.gaury.dev`, but it speaks the same
+frozen protocol as any [self-hosted binthere](https://github.com/nxfu/binthere#self-hosting),
+so you can point it at your own deployment. There are three ways to set the server, in order
+of precedence:
+
+- **`-s, --server <url>`** — per-command, e.g.
+  `binthere create --server https://paste.example.com`.
+- **`$BINTHERE_SERVER`** — set it once in your shell to make every `create`/`delete` use your
+  instance: `export BINTHERE_SERVER=https://paste.example.com`.
+- **The share URL** — `get`/`view`/`delete` read the origin straight from the URL you pass, so
+  fetching from a self-hosted instance needs no extra config:
+  `binthere get 'https://paste.example.com/p/<id>#<key>'`.
+
+```bash
+# One-off against your own instance
+binthere create -t "hello" --server https://paste.example.com
+
+# Or make it the default for the session
+export BINTHERE_SERVER=https://paste.example.com
+git diff | binthere            # uploads to paste.example.com
+```
+
+HTTPS is required for every server except `localhost` / `127.0.0.1`, so a local
+`npm run dev` / `wrangler dev` instance works over plain HTTP:
+`binthere create --server http://127.0.0.1:8787`.
+
 ## Security notes
 
 - **The share URL is the secret.** Anyone with the full URL (and the password, if set) can
