@@ -33,9 +33,6 @@ AGENTS.md
 DESIGN.md
 PLAN.md
 
-# Reference-only sibling project (its own repo); not part of binthere.
-nopebin/
-
 # Audit workspace (analysis only, never commit)
 .claude-audit/
 .codex-audit/
