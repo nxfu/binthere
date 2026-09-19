@@ -77,7 +77,7 @@ asset** and the **Worker bundles the same file** — one source of truth for the
 | `public/js/qrcode.js` | browser | vendored MIT `qrcode-generator` (rendered as a `data:` image) |
 | `src/index.js` | worker | API routing, size guard, id allocation, error mapping |
 | `src/burn-do.js` | worker | `BurnPaste` Durable Object |
-| `src/lib/{ids,store,ratelimit}.js` | worker | id/token gen + hashing, KV/DO routing + expiry, rate-limit wrapper |
+| `src/lib/{ids,store,ratelimit,stars}.js` | worker | id/token gen + hashing, KV/DO routing + expiry, rate-limit wrapper, cached star-count proxy |
 
 ### The CLI client
 
