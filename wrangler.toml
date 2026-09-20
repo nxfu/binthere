@@ -46,6 +46,17 @@ namespace_id = "1001"
   limit = 30
   period = 60
 
+# ── Read rate limiting: GET/DELETE/consume, keyed by client IP ───────────────
+# Higher limit than creation — legitimate reads are frequent; abuse is
+# caught without impacting normal browsing. Fails open.
+[[ratelimits]]
+name = "READ_RL"
+namespace_id = "1002"
+
+  [ratelimits.simple]
+  limit = 300
+  period = 60
+
 # ── Observability ────────────────────────────────────────────────────────────
 [observability]
 enabled = true

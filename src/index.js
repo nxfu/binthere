@@ -9,7 +9,7 @@
 import { validatePaste, FormatError, MAX_CT_B64 } from '../public/js/format.js';
 import { genId, parseId, genDeleteToken, hashToken, verifyToken } from './lib/ids.js';
 import { ttlSeconds, MAX_BODY, MAX_BURN_RECORD, kvExists, kvPut, kvGet, kvDelete, burnStub } from './lib/store.js';
-import { allowCreate } from './lib/ratelimit.js';
+import { allowCreate, allowRead } from './lib/ratelimit.js';
 import { fetchStars, STARS_TTL, STARS_ERROR_TTL } from './lib/stars.js';
 
 export { BurnPaste } from './burn-do.js';
@@ -19,6 +19,7 @@ const JSON_HEADERS = {
   'cache-control': 'no-store',
   // _headers covers static assets; the Worker sets its own nosniff on API JSON.
   'x-content-type-options': 'nosniff',
+  'cross-origin-resource-policy': 'same-origin',
 };
 
 const json = (obj, status = 200, extraHeaders) => new Response(JSON.stringify(obj), {
@@ -55,6 +56,7 @@ export default {
         return err('Document does not exist, has expired or has been deleted.', 404);
       }
       if (request.method !== 'POST') return err('Method not allowed', 405, { allow: 'POST' });
+      if (!(await allowRead(env, request))) return err('Rate limit exceeded. Try again shortly.', 429);
       return consumePaste(id, request, env);
     }
 
@@ -68,6 +70,7 @@ export default {
       } catch {
         return err('Document does not exist, has expired or has been deleted.', 404);
       }
+      if (!(await allowRead(env, request))) return err('Rate limit exceeded. Try again shortly.', 429);
       if (request.method === 'GET') return readPaste(id, env, url.searchParams.get('meta') === '1');
       if (request.method === 'DELETE') return deletePaste(id, request, env);
       return err('Method not allowed', 405, { allow: 'GET, DELETE' });
@@ -202,7 +205,6 @@ async function createPaste(request, env, _ctx) {
 
 async function readPaste(id, env, peekOnly) {
   const info = parseId(id);
-  if (!info) return err('Document does not exist, has expired or has been deleted.', 404);
 
   if (info.burn) {
     // GET on a burn id is always safe: with or without ?meta=1 it returns the
