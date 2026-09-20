@@ -48,7 +48,7 @@ country/edge-only behavior won't show locally.
 |---|---|
 | **Format & AAD** (shared browser + Worker) | `public/js/format.js` — change ⇒ bump `v`, update `SPEC.md`, add vectors |
 | **Crypto primitives** | `public/js/crypto.js`, `public/js/bytes.js` |
-| **Backend** | `src/index.js` (routing/limits/errors), `src/burn-do.js` (DO), `src/lib/*` (ids, store, ratelimit) |
+| **Backend** | `src/index.js` (routing/limits/errors), `src/burn-do.js` (DO), `src/lib/*` (ids, store, ratelimit, stars) |
 | **Frontend** | `public/index.html`, `public/css/styles.css`, `public/js/{api,ui,app,markdown}.js` |
 | **CSP** | `public/_headers` |
 | **Config** | `wrangler.toml` (assets, KV `PASTES`, `BurnPaste` DO + migration, `CREATE_RL`) — tracked in git; for your own deployment replace the KV ids (pristine template: `wrangler.toml.example`) |
