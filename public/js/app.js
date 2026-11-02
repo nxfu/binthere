@@ -7,7 +7,7 @@ import { encryptPaste, decryptPaste, decryptContent, deriveContentKey, PasswordR
 import { createPaste, fetchPaste, fetchPasteMeta, consumePaste, deletePaste, ApiError } from './api.js';
 import { validateHead, validatePaste, buildAAD, EXPIRE_SECONDS } from './format.js';
 import { renderMarkdown } from './markdown.js';
-import { looksLikeCode, highlightInto } from './highlight.js';
+import { detectLanguage, looksLikeCode, highlightInto } from './highlight.js';
 import { $, showView, toast, copyText, flashCopied, pill } from './ui.js';
 
 // Module-level state referenced by helpers that may run during the top-level
@@ -475,8 +475,10 @@ function renderPaste(paste, result) {
 
   // Notes are uniform text now; source code is auto-detected and highlighted.
   // `isCode` also covers older pastes explicitly saved with fmt:'code'.
-  const isMarkdown = result.fmt === 'markdown';
-  const isCode = result.fmt === 'code' || (result.fmt === 'plaintext' && looksLikeCode(result.text));
+  const language = detectLanguage(result.text);
+  const isMarkdown = result.fmt === 'markdown' || (result.fmt === 'plaintext' && language === 'markdown');
+  const isCode = result.fmt === 'code' || (result.fmt === 'plaintext' && language !== 'text' && language !== 'markdown')
+    || (result.fmt === 'plaintext' && looksLikeCode(result.text));
 
   // Pills: (code|markdown) · (one-time view). Plain text gets no kind pill —
   // it's the default and adds nothing. No expiry pill either: an opened note is
@@ -490,22 +492,34 @@ function renderPaste(paste, result) {
   // Content (DOM construction only).
   const container = $('#paste-content');
   let showRaw = false;
-  const draw = () => renderContent(container, result, isCode, showRaw);
+  const draw = () => renderContent(container, result, isMarkdown, isCode, showRaw);
   draw();
 
   const rawBtn = $('#toggle-raw');
-  rawBtn.hidden = !isMarkdown;
-  rawBtn.textContent = 'Raw';
-  rawBtn.onclick = () => { showRaw = !showRaw; rawBtn.textContent = showRaw ? 'Rendered' : 'Raw'; draw(); };
+  rawBtn.hidden = !(isMarkdown || isCode);
+  rawBtn.textContent = 'View raw';
+  rawBtn.setAttribute('aria-pressed', 'false');
+  rawBtn.onclick = () => {
+    showRaw = !showRaw;
+    rawBtn.textContent = showRaw ? 'View formatted' : 'View raw';
+    rawBtn.setAttribute('aria-pressed', String(showRaw));
+    draw();
+  };
 
   $('#copy-content').onclick = async () => {
-    toast((await copyText(result.text)) ? 'copied to clipboard' : 'copy failed');
+    try {
+      toast((await copyText(result.text)) ? 'copied to clipboard' : 'copy failed');
+    } catch {
+      toast('copy failed');
+    }
   };
+
+  $('#download-content').onclick = () => downloadPaste(result.text, isMarkdown ? 'md' : isCode ? language : 'txt');
 }
 
-function renderContent(container, result, isCode, showRaw) {
+function renderContent(container, result, isMarkdown, isCode, showRaw) {
   container.textContent = '';
-  if (result.fmt === 'markdown' && !showRaw) {
+  if (isMarkdown && !showRaw) {
     const div = document.createElement('div');
     div.className = 'md';
     renderMarkdown(div, result.text);
@@ -514,7 +528,7 @@ function renderContent(container, result, isCode, showRaw) {
   }
   const pre = document.createElement('pre');
   pre.className = 'code';
-  if (isCode) {
+  if (isCode && !showRaw) {
     // Highlight via createElement + textContent only (never innerHTML).
     const code = document.createElement('code');
     highlightInto(code, result.text);
@@ -523,6 +537,26 @@ function renderContent(container, result, isCode, showRaw) {
     pre.textContent = result.text;
   }
   container.appendChild(pre);
+}
+
+function downloadPaste(text, extension) {
+  let url;
+  try {
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `binthere-paste.${/^(?:js|py|md|json|html|css|ts|txt)$/.test(extension) ? extension : 'txt'}`;
+    link.hidden = true;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    toast('download started');
+  } catch {
+    toast('download failed');
+  } finally {
+    if (url) setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
 }
 
 // ── shared helpers ───────────────────────────────────────────────────────────

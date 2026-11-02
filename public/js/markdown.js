@@ -8,7 +8,10 @@
 //
 // `parse()` and `sanitizeUrl()` are exported for the adversarial test suite.
 
+import { detectLanguage, highlightInto } from './highlight.js';
+
 const SAFE_SCHEME = /^(https?:|mailto:)/;
+const CODE_LANGUAGES = new Set(['js', 'javascript', 'jsx', 'ts', 'typescript', 'py', 'python', 'json', 'html', 'xml', 'css', 'sh', 'bash', 'shell', 'sql', 'go', 'rust', 'java', 'c', 'cpp']);
 // ASCII control chars + space (0x00–0x20). Browsers ignore these inside a URL
 // scheme, which enables "java\tscript:" style bypasses — so strip them first.
 // eslint-disable-next-line no-control-regex -- matching control chars is the point
@@ -110,13 +113,14 @@ export function parse(md) {
   while (i < lines.length) {
     const line = lines[i];
 
-    if (/^```/.test(line)) {
+    const fence = /^```([^\s`]*)/.exec(line);
+    if (fence) {
       flushPara();
       const body = [];
       i++;
       while (i < lines.length && !/^```/.test(lines[i])) body.push(lines[i++]);
       i++; // consume closing fence (if present)
-      blocks.push({ type: 'code_block', text: body.join('\n') });
+      blocks.push({ type: 'code_block', text: body.join('\n'), language: fence[1].toLowerCase() });
       continue;
     }
 
@@ -208,7 +212,9 @@ export function renderMarkdown(container, md) {
     } else if (b.type === 'code_block') {
       const pre = document.createElement('pre');
       const code = document.createElement('code');
-      code.textContent = b.text;
+      const language = b.language || detectLanguage(b.text);
+      if (CODE_LANGUAGES.has(language) || (language !== 'text' && language !== 'markdown')) highlightInto(code, b.text);
+      else code.textContent = b.text;
       pre.appendChild(code);
       container.appendChild(pre);
     } else if (b.type === 'hr') {

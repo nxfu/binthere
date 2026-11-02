@@ -28,6 +28,26 @@ const KEYWORDS = new Set([
   'while','with','yield',
 ]);
 
+/** Guess a useful source format without changing the paste's stored text. */
+export function detectLanguage(text) {
+  if (typeof text !== 'string') return 'text';
+  const t = text.trim();
+  if (!t) return 'text';
+  if (/^(?:\{[\s\S]*\}|\[[\s\S]*\])$/.test(t)) {
+    try {
+      JSON.parse(t);
+      return 'json';
+    } catch { /* continue with the remaining recognizers */ }
+  }
+  if (/<!doctype\s+html|<html\b|<head\b|<body\b|<\/?(?:div|span|p|a|h[1-6]|script|style|main|section|button|input|ul|li|table|form|header|footer)\b/i.test(t)) return 'html';
+  if (/(^|\n)\s*[.#]?[\w-]+(?:\s*,\s*[.#]?[\w-]+)*\s*\{\s*[-\w]+\s*:/m.test(t)) return 'css';
+  if (/^(?:#{1,6}\s|>\s|[-*+]\s|\d+\.\s|```)/m.test(t)) return 'markdown';
+  if (/\b(?:def|elif|self|lambda|print)\b|^\s*from\s+\w+\s+import\s/m.test(t) && /:|\b(?:True|False|None)\b/.test(t)) return 'py';
+  if (/\b(?:function|const|let|var|=>|export|console\.log|document\.)\b/.test(t) && /[;{}()=]/.test(t)) return 'js';
+  if (looksLikeCode(t)) return 'js';
+  return 'text';
+}
+
 // Single tokenizer regex, ordered so the most specific patterns win. Named-ish
 // groups by position: 1 line-comment, 2 block-comment, 3 string, 4 number,
 // 5 identifier, 6 whitespace, 7 other punctuation.
@@ -54,6 +74,14 @@ export function looksLikeCode(text) {
   const t = text.trim();
   if (t.length < 12) return false;
 
+  if (/^(?:\{[\s\S]*\}|\[[\s\S]*\])$/.test(t)) {
+    try { JSON.parse(t); return true; } catch { /* continue */ }
+  }
+  if (/<!doctype\s+html|<html\b|<\/?(?:div|span|p|a|h[1-6]|script|style|main|section|button|input|ul|li|table|form|header|footer)\b/i.test(t)) return true;
+  if (/(^|\n)\s*[.#]?[\w-]+(?:\s*,\s*[.#]?[\w-]+)*\s*\{\s*[-\w]+\s*:/m.test(t)) return true;
+  if (/\b(?:def|elif|self|lambda|print)\b|^\s*from\s+\w+\s+import\s/m.test(t) && /:|\b(?:True|False|None)\b/.test(t)) return true;
+  if (/\b(?:function|const|let|var|=>|export|console\.log|document\.)\b/.test(t) && /[;{}()=]/.test(t)) return true;
+
   const lines = t.split('\n');
   let score = 0;
 
@@ -79,13 +107,21 @@ export function looksLikeCode(text) {
  */
 export function tokenize(text) {
   const src = typeof text === 'string' ? text : String(text ?? '');
+  if (/<!doctype\s+html|<html\b|<\/?(?:div|span|p|a|h[1-6]|script|style|main|section|button|input|ul|li|table|form|header|footer)\b/i.test(src)) {
+    return tokenizeHtml(src);
+  }
+  if (detectLanguage(src) === 'css') return tokenizeCss(src);
   const out = [];
   let last = 0;
   let m;
   TOKEN_RE.lastIndex = 0;
   while ((m = TOKEN_RE.exec(src))) {
     if (m.index > last) out.push({ type: 'text', value: src.slice(last, m.index) });
-    if (m[1] || m[2]) out.push({ type: 'com', value: m[0] });
+    if (m[1] || m[2]) {
+      // A CSS color or selector beginning with # is not a Python/shell comment.
+      if (m[0][0] === '#' && /^#[\da-f]{3,8}\b/i.test(m[0])) out.push({ type: 'punc', value: '#' });
+      else out.push({ type: 'com', value: m[0] });
+    }
     else if (m[3]) out.push({ type: 'str', value: m[0] });
     else if (m[4]) out.push({ type: 'num', value: m[0] });
     else if (m[5]) {
@@ -103,13 +139,59 @@ export function tokenize(text) {
   return out;
 }
 
+function tokenizeHtml(src) {
+  const out = [];
+  const re = /(<!--[\s\S]*?-->|<\/?[A-Za-z][\w:-]*|\b[A-Za-z_:][\w:.-]*(?=\s*=)|"[^"\n]*"|'[^'\n]*'|\/?>)/g;
+  let last = 0;
+  let m;
+  while ((m = re.exec(src))) {
+    if (m.index > last) out.push({ type: 'text', value: src.slice(last, m.index) });
+    const value = m[0];
+    if (value.startsWith('<!--')) out.push({ type: 'com', value });
+    else if (/^<\/?[A-Za-z]/.test(value)) {
+      out.push({ type: 'punc', value: value.slice(0, value[1] === '/' ? 2 : 1) });
+      out.push({ type: 'tag', value: value.slice(value[1] === '/' ? 2 : 1) });
+    } else if (/^["']/.test(value)) out.push({ type: 'str', value });
+    else if (/^\/?>$/.test(value)) out.push({ type: 'punc', value });
+    else out.push({ type: 'attr', value });
+    last = re.lastIndex;
+  }
+  if (last < src.length) out.push({ type: 'text', value: src.slice(last) });
+  return out;
+}
+
+function tokenizeCss(src) {
+  const out = [];
+  const re = /(\/\*[\s\S]*?\*\/|"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|#[\da-f]{3,8}\b|\b\d+(?:\.\d+)?(?:px|rem|em|vh|vw|%|s|ms)?\b|[A-Za-z_-][\w-]*|\s+|[^\w\s])/gi;
+  let last = 0;
+  let m;
+  while ((m = re.exec(src))) {
+    if (m.index > last) out.push({ type: 'text', value: src.slice(last, m.index) });
+    const value = m[0];
+    if (value.startsWith('/*')) out.push({ type: 'com', value });
+    else if (/^["']/.test(value)) out.push({ type: 'str', value });
+    else if (/^#/.test(value)) out.push({ type: 'num', value });
+    else if (/^\d/.test(value)) out.push({ type: 'num', value });
+    else if (/^[A-Za-z_-]/.test(value)) {
+      let i = re.lastIndex;
+      while (i < src.length && /\s/.test(src[i])) i++;
+      const type = src[i] === ':' ? 'prop' : src[i] === '(' ? 'fn' : 'text';
+      out.push({ type, value });
+    } else if (/\s/.test(value)) out.push({ type: 'text', value });
+    else out.push({ type: 'punc', value });
+    last = re.lastIndex;
+  }
+  if (last < src.length) out.push({ type: 'text', value: src.slice(last) });
+  return out;
+}
+
 /** Is the next non-whitespace character at/after index `i` an opening paren? */
 function isCallAhead(src, i) {
   while (i < src.length && /\s/.test(src[i])) i++;
   return src[i] === '(';
 }
 
-const CLASS = { com: 'tok-com', str: 'tok-str', num: 'tok-num', kw: 'tok-kw', fn: 'tok-fn', punc: 'tok-punc' };
+const CLASS = { com: 'tok-com', str: 'tok-str', num: 'tok-num', kw: 'tok-kw', fn: 'tok-fn', punc: 'tok-punc', tag: 'tok-tag', attr: 'tok-attr', prop: 'tok-prop' };
 
 // Render budget: highlighting turns EVERY token into a DOM node (spans for
 // classified tokens, individual text nodes for the rest), so a token-dense

@@ -5,7 +5,7 @@
 // holds, highlighting can only mis-color — never drop, duplicate, or alter the
 // decrypted content. We also check the classifier and the code/prose heuristic.
 import { describe, it, expect } from 'vitest';
-import { tokenize, looksLikeCode, highlightTokens, MAX_HIGHLIGHT_BYTES, MAX_HIGHLIGHT_NODES } from '../public/js/highlight.js';
+import { detectLanguage, tokenize, looksLikeCode, highlightTokens, MAX_HIGHLIGHT_BYTES, MAX_HIGHLIGHT_NODES } from '../public/js/highlight.js';
 
 const roundtrips = (s) => tokenize(s).map((t) => t.value).join('') === s;
 
@@ -76,6 +76,36 @@ describe('looksLikeCode — heuristic', () => {
   it('tolerates non-string input', () => {
     expect(looksLikeCode(null)).toBe(false);
     expect(looksLikeCode(undefined)).toBe(false);
+  });
+});
+
+describe('detectLanguage — common shared formats', () => {
+  it.each([
+    ['const answer = 42;\nconsole.log(answer);', 'js'],
+    ['def greet(name):\n    return "hello " + name', 'py'],
+    ['{"ok": true, "count": 3}', 'json'],
+    ['<main class="page">Hello</main>', 'html'],
+    ['.card { color: #abc; }', 'css'],
+    ['# A note\n\n- first item', 'markdown'],
+    ['just an ordinary sentence', 'text'],
+  ])('detects %s as %s', (source, expected) => {
+    expect(detectLanguage(source)).toBe(expected);
+  });
+
+  it('tokenizes HTML without changing source and marks tags and attributes', () => {
+    const source = '<main class="page">Hi</main>';
+    const tokens = tokenize(source);
+    expect(tokens.map((token) => token.value).join('')).toBe(source);
+    expect(tokens.some((token) => token.type === 'tag' && token.value === 'main')).toBe(true);
+    expect(tokens.some((token) => token.type === 'attr' && token.value === 'class')).toBe(true);
+  });
+
+  it('tokenizes CSS declarations and colors without changing source', () => {
+    const source = '.card { color: #abc; }';
+    const tokens = tokenize(source);
+    expect(tokens.map((token) => token.value).join('')).toBe(source);
+    expect(tokens.some((token) => token.type === 'prop' && token.value === 'color')).toBe(true);
+    expect(tokens.some((token) => token.type === 'num' && token.value === '#abc')).toBe(true);
   });
 });
 

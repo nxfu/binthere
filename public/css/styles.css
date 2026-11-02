@@ -481,6 +481,9 @@ html.dark .theme-toggle .ico-moon { display: block; }
 .tok-com { color: var(--ink-3); font-style: italic; }
 .tok-fn { color: var(--ink); }
 .tok-punc { color: var(--ink-3); }
+.tok-tag { color: var(--accent); font-weight: 600; }
+.tok-attr { color: var(--ink); }
+.tok-prop { color: var(--accent); }
 
 /* ── status / expired panel ──────────────────────────────────────────────── */
 .status-panel { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem;

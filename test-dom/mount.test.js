@@ -12,7 +12,7 @@ import { highlightInto, MAX_HIGHLIGHT_BYTES } from '../public/js/highlight.js';
 
 const ALLOWED_MD_TAGS = new Set([
   'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'P', 'BLOCKQUOTE', 'PRE', 'CODE',
-  'STRONG', 'EM', 'A', 'HR', 'UL', 'OL', 'LI', 'DIV',
+  'STRONG', 'EM', 'A', 'HR', 'UL', 'OL', 'LI', 'DIV', 'SPAN',
 ]);
 
 /** Assert `root` contains no script-capable content anywhere. */
@@ -90,6 +90,16 @@ describe('renderMarkdown — mounted tree is inert', () => {
     const pre = div.querySelectorAll('pre');
     expect(pre.length).toBe(1);
     expect(pre[0].textContent).toBe(big);
+    assertInert(div);
+  });
+
+  it('highlights fenced code blocks while preserving their literal source', () => {
+    const div = document.createElement('div');
+    const source = 'const answer = 42;';
+    renderMarkdown(div, `\`\`\`javascript\n${source}\n\`\`\``);
+    const code = div.querySelector('pre code');
+    expect(code.textContent).toBe(source);
+    expect(code.querySelector('.tok-kw')?.textContent).toBe('const');
     assertInert(div);
   });
 });
