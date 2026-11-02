@@ -54,7 +54,12 @@ export class BurnPaste extends DurableObject {
   async remove(token) {
     return this.ctx.blockConcurrencyWhile(async () => {
       const rec = await this.ctx.storage.get(KEY);
-      if (!rec) return { status: 'notfound' };
+      if (!rec) {
+        // Dummy verify to mask existence: an attacker measuring response timing
+        // cannot distinguish "ID exists + wrong token" from "ID doesn't exist".
+        await verifyToken(token, '0000000000000000000000000000000000000000000000000000000000000000');
+        return { status: 'notfound' };
+      }
       if (!(await verifyToken(token, rec.dth))) return { status: 'bad' };
       await this.#purge();
       return { status: 'ok' };

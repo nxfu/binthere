@@ -165,9 +165,9 @@ can host binthere **completely free**.
 
 The button above clones the repo and provisions everything declared in
 [`wrangler.toml`](./wrangler.toml) — the static assets, the `PASTES` KV binding, the
-`BurnPaste` Durable Object + migration, and the `CREATE_RL` rate limiter — on your own
-Cloudflare account. The importer creates fresh resources and rewrites the resource ids in
-*your* copy of the config; the checked-in ids belong to the origin deployment and are
+`BurnPaste` Durable Object + migration, and both `CREATE_RL` and `READ_RL` rate limiters — on
+your own Cloudflare account. The importer creates fresh resources and rewrites the resource ids
+in *your* copy of the config; the checked-in ids belong to the origin deployment and are
 identifiers, not secrets.
 
 If the one-click path ever misbehaves, the manual route below is the guaranteed fallback:
@@ -206,7 +206,8 @@ npm run deploy           # creates the Worker, Durable Object, and rate limiter
 | Worker (`src/index.js`) | `/api/*` paste API — stores ciphertext, enforces size/rate/burn |
 | KV (`PASTES`) | Normal pastes, with native TTL expiry |
 | Durable Object (`BurnPaste`) | Burn-after-read pastes, atomic single-consumer |
-| Rate Limiting binding | Abuse mitigation on paste creation (fail-open) |
+| `CREATE_RL` Rate Limiter | Abuse mitigation on paste creation (fail-open) |
+| `READ_RL` Rate Limiter | Abuse mitigation on paste reads, consumes, and deletes (fail-open) |
 
 See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the request path and [`SPEC.md`](./SPEC.md) for
 the exact cryptographic protocol and paste format v1, including frozen test vectors.
@@ -220,9 +221,9 @@ the key fragment never appears in any request. Full details in [`SPEC.md`](./SPE
 | Method & path | Purpose | Success | Errors |
 | --- | --- | --- | --- |
 | `POST /api/paste` | Create a paste (format v1 JSON) | `201` | `400` invalid · `413` too large · `429` rate-limited |
-| `GET /api/paste/:id` | Fetch a paste (consumes a burn) | `200` | `404` missing/expired · `410` burned |
-| `GET /api/paste/:id?meta=1` | Peek a burn head without consuming | `200` | `404` missing · `410` burned/expired |
-| `DELETE /api/paste/:id` | Delete, with `X-Delete-Token` header | `200` | `400` missing token · `403` wrong token · `404` missing |
+| `GET /api/paste/:id` | Fetch a paste (consumes a burn) | `200` | `404` missing/expired · `410` burned · `429` rate-limited |
+| `GET /api/paste/:id?meta=1` | Peek a burn head without consuming | `200` | `404` missing · `410` burned/expired · `429` rate-limited |
+| `DELETE /api/paste/:id` | Delete, with `X-Delete-Token` header | `200` | `400` missing token · `403` wrong token · `404` missing · `429` rate-limited |
 | `GET /api/stars` | Repo star count for the topbar badge (not part of the paste protocol) | `200` | `502` GitHub unavailable |
 
 The delete token travels in a header — never in the URL — so it cannot land in request logs;
@@ -281,7 +282,7 @@ Most of these are deliberate scope choices, not bugs. Know them before relying o
 - **The UI fixes expiry at 24 h and one-time view.** The wire format supports more; the
   controls are just hidden.
 - **English only.**
-- **The rate limiter fails open** — it is abuse mitigation, not access control.
+- **The rate limiters fail open** — they are abuse mitigation, not access control.
 - **Canonical URLs are hardcoded** to the origin deployment; update them when self-hosting
   (see [Self-hosting](#self-hosting)).
 

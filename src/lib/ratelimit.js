@@ -15,3 +15,16 @@ export async function allowCreate(env, request) {
     return true; // fail open
   }
 }
+
+/** Rate-limit reads, consumes, and deletes (prevents abuse of DO/API capacity). */
+export async function allowRead(env, request) {
+  const rl = env.READ_RL;
+  if (!rl || typeof rl.limit !== 'function') return true; // fail open
+  try {
+    const key = request.headers.get('CF-Connecting-IP') || 'anonymous';
+    const { success } = await rl.limit({ key });
+    return success !== false;
+  } catch {
+    return true; // fail open
+  }
+}
