@@ -47,50 +47,16 @@ Every note has the same lifecycle as the website: **it deletes after one read, o
 
 ## Usage
 
-### Interactive: just type `binthere`
+### Commands
 
-On a terminal, a bare `binthere` opens a full-screen menu — the wordmark materialises in
-glyph by glyph, then pick an action with the arrow keys (or `1`–`3`) and confirm with Enter:
+The CLI is command-first: a bare `binthere` prints help and performs no network or stdin operation. Use explicit subcommands for predictable scripts and pipelines.
 
-```text
- binthere
+- `binthere create [text]` reads one positional text argument, `--text`, `--file`, or stdin.
+- `binthere get <share-url | ->` fetches and decrypts; plaintext goes to stdout unless `--out` is used.
+- `binthere delete <share-url | id>` deletes with a hidden prompt or `--token-env`.
+- `binthere help`, `binthere version`, and `binthere update` provide utility commands.
 
-     ✦
- █▀▄ █ █▄ █ ▀█▀ █ █ █▀▀ █▀▄ █▀▀
- █▀▄ █ █ ▀█  █  █▀█ █▀  █▀▄ █▀
- ▀▀  ▀ ▀  ▀  ▀  ▀ ▀ ▀▀▀ ▀ ▀ ▀▀▀
-
- Zero-knowledge encrypted notes.
- encrypted locally · one read · gone in 24 hours
-
- server  https://binthere.gaury.dev
-
- ╭─ actions ─────────────────────────────────────────────────╮
- │ ❯ 1 Create a note   write, seal, and get a one-time link  │
- │   2 View a note     paste a share URL — reading burns it  │
- │   3 Delete a note   remove it early with the delete token │
- ╰───────────────────────────────────────────────────────────╯
-
- ↑↓ move  ·  ↵ select  ·  1-3 jump  ·  ^c quit
-```
-
-- **Create** — write (or paste) your note on its own screen, press **Ctrl+Q** to seal it,
-  optionally add a password, and get the share link, a scannable **terminal QR code**, and
-  the delete token on a fresh result screen (the typed note is cleared from view; a shine
-  beam sweeps the wordmark immediately and then every six seconds). Press **c**
-  there to copy the link to the clipboard, **t** for the delete token — via the platform's
-  native tool (`clip` / `pbcopy` / `wl-copy` / `xclip` / `xsel`, fed over stdin so secrets
-  never hit argv), with an OSC 52 escape fallback that works over SSH.
-- **View** — paste a share URL; the note is decrypted locally after the usual
-  destructive-read confirmation (a wrong password never burns it).
-- **Delete** — paste the share URL or id and the delete token from create time.
-
-All decoration is drawn on stderr; only machine-readable output (the share URL on create,
-the plaintext on view) goes to stdout, so `binthere | pbcopy` (macOS) or `binthere | clip`
-(Windows) still copies just the link. Colors follow the website's palette, degrade to
-16-color terminals, and switch off entirely under `NO_COLOR` or when stderr is not a TTY.
-Set `BINTHERE_NO_ANIMATION=1` to retain colors and the full-screen TUI while disabling the
-intro, shine, ember pulse, and rotating spinner (useful for accessibility and remote shells).
+Password and delete-token prompts are hidden and only used when explicitly requested or when the operation requires a token on a TTY. Piped input is not interpreted as a prompt.
 
 ### Scripting
 
@@ -100,7 +66,7 @@ git diff | binthere create
 
 # When stdin is piped — or --text is given — "create" is the default command
 cat notes.md | binthere
-binthere -t "meet at 6"
+binthere create --text "meet at 6"
 
 # From a file, password-protected, machine-readable output
 binthere create --file secrets.txt --password --json
@@ -113,7 +79,7 @@ binthere view 'https://binthere.gaury.dev/p/<id>#<key>' -y
 BT_TOKEN=... binthere delete <share-url-or-id> --token-env BT_TOKEN
 ```
 
-### `binthere create [flags]`
+### `binthere create [text] [flags]`
 
 Reads content from stdin (or `--text` / `--file`), encrypts it locally, uploads only
 ciphertext, and prints the share URL on **stdout** — the delete token and lifecycle note go
@@ -164,7 +130,6 @@ Prints the installed version and checks npm for a newer release without changing
 | Flag / env | Meaning |
 | --- | --- |
 | `-s, --server <url>` | API origin for `create`/`delete` (default `$BINTHERE_SERVER`, then `https://binthere.gaury.dev`); `get` takes it from the share URL |
-| `$BINTHERE_NO_ANIMATION=1` | Disable non-essential TUI motion while retaining colors and interaction |
 | `--help`, `--version` | Show help or print the installed version without a network check |
 
 HTTPS is enforced for every server except `localhost` / `127.0.0.1` (for `wrangler dev`).
@@ -209,7 +174,7 @@ HTTPS is required for every server except `localhost` / `127.0.0.1`, so a local
 - **`--text` puts the note itself in argv** (shell history, process listings). It's for
   quick throwaway notes — pipe stdin or use `--file` for anything sensitive.
 - **Passwords and delete tokens are never accepted as plain flag values** — only via a
-  hidden interactive prompt or `--password-env` / `--token-env`, so they cannot leak into
+  hidden prompt when explicitly requested or `--password-env` / `--token-env`, so they cannot leak into
   shell history or process listings.
 - The fragment key never leaves the process except inside the printed share URL; it is
   never sent to the server in any request.
