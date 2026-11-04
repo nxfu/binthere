@@ -13,7 +13,7 @@ import {
 } from '../../vendor/crypto.js';
 import { validateHead, validatePaste } from '../../vendor/format.js';
 import { Client } from '../client.js';
-import { UsageError } from '../errors.js';
+import { ConsumeError, UsageError } from '../errors.js';
 import { resolveSecret } from '../secret.js';
 import { isBurnId, parseShareUrl } from '../url.js';
 
@@ -41,6 +41,22 @@ async function writeOutput(io, outPath, text) {
   } else {
     io.stdout(text);
   }
+}
+
+function consumeFailure(error) {
+  if (error?.consumeState === 'not-sent') {
+    return 'The consume request was not sent, so this paste was not consumed.';
+  }
+  if (error?.status === 404) return 'Paste not found (HTTP 404).';
+  if (error?.status === 410) return 'Paste expired or already consumed (HTTP 410).';
+  if (error?.status === 429) return 'The consume request was rate limited (HTTP 429). Wait before trying again.';
+  const warning = 'Could not confirm whether the paste was consumed. Retrying may return an already-consumed response. Check with the sender before retrying.';
+  if (error?.responseStatus >= 500) {
+    return `The server returned HTTP ${error.responseStatus}. ${warning}`;
+  }
+  if (error?.status === 0) return `No response was received. ${warning}`;
+  if (error?.consumeState === 'unknown') return `The consume response was malformed. ${warning}`;
+  return `The consume request was rejected (HTTP ${error?.status ?? 'unknown'}).`;
 }
 
 export async function cmdGet(args, io) {
@@ -101,7 +117,13 @@ export async function cmdGet(args, io) {
 
     // 5. Consume — the single destructive read — then decrypt.
     try {
-      const paste = validatePaste(await client.consumePaste(id));
+      let consumed;
+      try {
+        consumed = await client.consumePaste(id);
+      } catch (e) {
+        throw new ConsumeError(consumeFailure(e));
+      }
+      const paste = validatePaste(consumed);
       const out = await decryptContent({ adata: paste.adata, ct: paste.ct, cek });
       if (outFile) {
         try {

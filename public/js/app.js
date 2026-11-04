@@ -371,7 +371,7 @@ function bytesEqual(a, b) {
 async function consumeBurn(id, head, cek) {
   status('decrypting…');
   let paste;
-  try { paste = await consumePaste(id); } catch (e) { return handleReadError(e); }
+  try { paste = await consumePaste(id); } catch (e) { return handleConsumeError(e); }
   try {
     paste = validatePaste(paste);
     // Defense in depth: the consumed record must match the authenticated head we
@@ -458,15 +458,36 @@ function wirePasswordScreen(isBurn, verify) {
 }
 
 function handleReadError(e) {
-  // A fetch that never reached the server (offline, DNS, blocked) is NOT the
-  // same as "gone" — telling a burn-note reader their note was consumed when
-  // they are merely offline would be needlessly alarming.
   if (!(e instanceof ApiError)) {
     status('Could not reach the server — check your connection and try again.', true);
+  } else if (e.status === 404) {
+    status('This paste was not found.', true);
   } else if (e.status === 410) {
-    status('This paste has expired or was already opened.', true);
+    status('This paste has expired or was already consumed.', true);
+  } else if (e.status === 429) {
+    status('Too many requests. Please wait before trying again.', true);
+  } else if (e.status >= 500) {
+    status('The server could not complete the request. Please try again later.', true);
   } else {
-    status('This paste has expired, was already opened, or never existed.', true);
+    status(`The server rejected the request (HTTP ${e.status}).`, true);
+  }
+}
+
+function handleConsumeError(e) {
+  if (e instanceof ApiError && e.consumeState === 'not-sent') {
+    status('The consume request was not sent, so this paste was not consumed.', true);
+  } else if (e instanceof ApiError && e.status === 404) {
+    status('This paste was not found.', true);
+  } else if (e instanceof ApiError && e.status === 410) {
+    status('This paste has expired or was already consumed.', true);
+  } else if (e instanceof ApiError && e.status === 429) {
+    status('The consume request was rate limited. Please wait before trying again.', true);
+  } else if (e instanceof ApiError && e.responseStatus >= 500) {
+    status(`The server returned HTTP ${e.responseStatus}. Could not confirm whether the paste was consumed. Retrying may return an already-consumed response. Check with the sender before retrying.`, true);
+  } else if (!(e instanceof ApiError) || e.consumeState === 'unknown' || e.status === 0 || e.status >= 500) {
+    status('No valid consume result was received, so it could not be confirmed whether the paste was consumed. Retrying may return an already-consumed response. Check with the sender before retrying.', true);
+  } else {
+    status(`The consume request was rejected (HTTP ${e.status}).`, true);
   }
 }
 
