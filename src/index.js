@@ -14,7 +14,6 @@ import { allowCreate } from './lib/ratelimit.js';
 import { fetchStars, STARS_TTL, STARS_ERROR_TTL } from './lib/stars.js';
 
 export { BurnPaste } from './burn-do.js';
-export { PasteStatistics } from './statistics-do.js';
 
 const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',

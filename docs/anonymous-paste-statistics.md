@@ -19,8 +19,9 @@ deleted. Enumerating records still present would not recover those missing creat
 After a paste Durable Object confirms a successful write, the Worker schedules one increment
 using `waitUntil`. The statistics subsystem receives only an increment request. It is not given
 the paste ID, ciphertext, encryption key, URL fragment, delete token, IP address, or request
-metadata. Sixteen independent Durable Objects store only aggregate integer totals; the read
-endpoint sums them. Statistics failure is best-effort and does not fail paste creation.
+metadata. Sixteen separately named Durable Object instances store only aggregate integer
+totals; the read endpoint sums them. Their names and storage keys are separate from paste IDs
+and paste records. Statistics failure is best-effort and does not fail paste creation.
 
 This counter records successful paste storage commits from deployment onward. If a client
 submits a new creation request after an earlier response was lost, each separately stored paste

@@ -7,8 +7,22 @@ import { DurableObject } from 'cloudflare:workers';
 import { verifyToken } from './lib/ids.js';
 
 const KEY = 'rec';
+const STATISTICS_KEY = 'anonymous-successful-creations';
 
 export class BurnPaste extends DurableObject {
+  /** Update an anonymous aggregate held in a statistics-only named instance. */
+  async incrementStatistics() {
+    const count = (await this.ctx.storage.get(STATISTICS_KEY)) ?? 0;
+    const next = count + 1;
+    await this.ctx.storage.put(STATISTICS_KEY, next);
+    return next;
+  }
+
+  /** Read the aggregate from a statistics-only named instance. */
+  async readStatistics() {
+    return (await this.ctx.storage.get(STATISTICS_KEY)) ?? 0;
+  }
+
   /**
    * Store a burn paste. Returns false if this instance already holds one (an id
    * collision), so the caller can regenerate the id. `paste` excludes `dth`,

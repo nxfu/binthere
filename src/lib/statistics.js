@@ -5,7 +5,7 @@ export const STATISTICS_SHARDS = 16;
 
 function shardStub(env, shard) {
   const name = `paste-creations-${shard.toString(16)}`;
-  return env.PASTE_STATS.get(env.PASTE_STATS.idFromName(name));
+  return env.BURN.get(env.BURN.idFromName(name));
 }
 
 /** Record one successful storage commit without delaying its HTTP response. */
@@ -18,7 +18,7 @@ export function recordPasteCreation(ctx, env) {
   // failed creation. Catch errors so waitUntil never carries a rejected promise.
   ctx.waitUntil(
     Promise.resolve()
-      .then(() => shardStub(env, shard).increment())
+      .then(() => shardStub(env, shard).incrementStatistics())
       .catch(() => {}),
   );
 }
@@ -26,7 +26,7 @@ export function recordPasteCreation(ctx, env) {
 /** Sum the independent shard totals for the public aggregate response. */
 export async function readPasteCreationCount(env) {
   const counts = await Promise.all(
-    Array.from({ length: STATISTICS_SHARDS }, (_, shard) => shardStub(env, shard).read()),
+    Array.from({ length: STATISTICS_SHARDS }, (_, shard) => shardStub(env, shard).readStatistics()),
   );
   return counts.reduce((total, count) => total + count, 0);
 }
