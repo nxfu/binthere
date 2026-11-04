@@ -588,42 +588,42 @@ describe('update', () => {
   const ok = (stdout = '', stderr = '') => ({ code: 0, stdout, stderr });
 
   it('reports when the installed version is current', async () => {
-    const a = updateIo([ok('"0.1.0"\n')]);
+    const a = updateIo([ok('"0.2.0"\n')]);
     expect(await run(['update'], a.io)).toBe(0);
-    expect(a.text.out()).toBe('binthere 0.1.0 is up to date\n');
+    expect(a.text.out()).toBe('binthere 0.2.0 is up to date\n');
     expect(a.calls).toEqual([['npm', ['view', 'binthere@latest', 'version', '--json']]]);
   });
 
   it('version reports an available version without locating or changing npm globals', async () => {
-    const a = updateIo([ok('"0.2.0"\n')]);
+    const a = updateIo([ok('"0.3.0"\n')]);
     expect(await run(['version'], a.io)).toBe(0);
-    expect(a.text.out()).toBe('binthere 0.1.0; update available: 0.2.0\n');
+    expect(a.text.out()).toBe('binthere 0.2.0; update available: 0.3.0\n');
     expect(a.calls).toHaveLength(1);
   });
 
   it('-v aliases version', async () => {
-    const a = updateIo([ok('"0.1.0"\n')]);
+    const a = updateIo([ok('"0.2.0"\n')]);
     expect(await run(['-v'], a.io)).toBe(0);
-    expect(a.text.out()).toBe('binthere 0.1.0 is up to date\n');
+    expect(a.text.out()).toBe('binthere 0.2.0 is up to date\n');
     expect(a.calls).toHaveLength(1);
   });
 
   it('updates a global installation without invoking a shell', async () => {
     const a = updateIo([
-      ok('"0.2.0"\n'),
+      ok('"0.3.0"\n'),
       ok('/usr/local/lib/node_modules\n'),
       ok('changed 1 package\n'),
     ], { global: true });
     expect(await run(['update'], a.io)).toBe(0);
-    expect(a.text.err()).toBe('updating binthere 0.1.0 → 0.2.0…\n');
-    expect(a.text.out()).toBe('updated binthere 0.1.0 → 0.2.0\n');
+    expect(a.text.err()).toBe('updating binthere 0.2.0 → 0.3.0…\n');
+    expect(a.text.out()).toBe('updated binthere 0.2.0 → 0.3.0\n');
     expect(a.calls[2]).toEqual(['npm', [
       'install', '--global', '--no-audit', '--no-fund', 'binthere@latest',
     ]]);
   });
 
   it('uses npm.cmd on Windows', async () => {
-    const a = updateIo([ok('"0.1.0"\n')], { platform: 'win32' });
+    const a = updateIo([ok('"0.2.0"\n')], { platform: 'win32' });
     a.io.env.ComSpec = 'C:\\Windows\\System32\\cmd.exe';
     expect(await run(['version'], a.io)).toBe(0);
     expect(a.calls[0]).toEqual([
@@ -634,7 +634,7 @@ describe('update', () => {
 
   it('refuses to modify a checkout or temporary npx copy', async () => {
     const a = updateIo([
-      ok('"0.2.0"\n'),
+      ok('"0.3.0"\n'),
       ok('/usr/local/lib/node_modules\n'),
     ], { global: false });
     expect(await run(['update'], a.io)).toBe(1);
