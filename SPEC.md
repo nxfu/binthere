@@ -329,6 +329,14 @@ cannot be enumerated to reconstruct historical creations. Counter updates receiv
 or content and are best-effort, separate from paste storage and lifecycle. This endpoint is
 public, read-only, briefly cacheable, and **not part of the paste protocol**.
 
+Creation requests also use the Cloudflare native rate-limit binding declared as `CREATE_RL` in
+`wrangler.toml`. Its key is the client IP for abuse mitigation; this binding is not an account
+system or an activity history. Cloudflare applies these counters per edge location and the
+configured threshold is approximate. The application fails open when the binding is not
+available. Local `wrangler dev` does not emulate this binding. Self-hosters choose a positive
+`namespace_id` that is unique within their Cloudflare account; bindings sharing one ID in an
+account share their counters.
+
 `POST /api/paste` requires `Content-Type: application/json` (parameters such as `charset`
 are allowed); anything else is a `415`. This forces a CORS preflight for cross-origin browser
 requests — since the API sends no CORS headers, a hostile page cannot create pastes from a

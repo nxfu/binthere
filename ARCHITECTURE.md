@@ -100,6 +100,22 @@ deletion. KV enumeration could at most find some remaining legacy records, not c
 expired creations, and would not establish a lifetime count. The statistics store is separate
 from paste storage and does not change encryption, identity, consumption, or deletion behavior.
 
+## Deployment resources
+
+`wrangler.toml.example` is the manual self-hosting template. A deployer creates separate
+production and preview KV namespaces and copies their IDs into the `PASTES` binding. The
+`BurnPaste` binding and `new_sqlite_classes` migration declare the Durable Object class; the
+first deploy creates its namespace, so there is no maintainer-owned DO ID to copy. The native
+`CREATE_RL` rate limiter uses an account-unique positive integer namespace ID in Wrangler
+configuration rather than a separately created resource. Reusing that number in another
+binding in the same account shares counters.
+
+Default `wrangler dev` uses local KV and Durable Object emulation. The native rate-limit
+binding is not emulated, so the Worker fails open locally. Do not use remote development for
+ordinary tests unless writes to real Cloudflare resources are intended. See
+[`SELF_HOSTING.md`](./SELF_HOSTING.md) for account setup, deployment, custom domains, quotas,
+and troubleshooting.
+
 ### The CLI client
 
 The official CLI (`cli/`, published to npm as [`binthere`](https://www.npmjs.com/package/binthere))
@@ -136,8 +152,10 @@ runs the Worker, DOM, and CLI suites): the SPEC §11 vectors re-verified against
 Node's WebCrypto, URL parsing, mocked-API round trips (including burn-ordering and wrong-token
 assertions), TUI/QR rendering, and the vendor-drift byte-compare against `public/js/`.
 
-`browser-tests/` runs the real app in Chromium through Wrangler dev. It covers create, reveal,
-burn, password retry, download, and zero CSP violations; `npm run test:e2e` runs it locally.
+`browser-tests/` runs the real app in Chromium through Wrangler dev. Its current smoke flows
+cover create, reveal, burn, password retry, download, and CSP violations. It does not cover
+every API failure, consume-response ambiguity, keyboard-only interaction, reduced motion, or
+mobile layouts; see the manual test gaps in [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
 CI (`.github/workflows/ci.yml`) runs lint, a byte-for-byte diff of the regenerated vectors
 against `test/vectors.expected.txt`, the Vitest suites, and Playwright on every push/PR.

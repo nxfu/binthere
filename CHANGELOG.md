@@ -6,6 +6,14 @@ versioned separately from the application (see [`SPEC.md`](./SPEC.md), currently
 
 ## [Unreleased]
 
+### Documentation
+
+- Added a beginner-friendly self-hosting guide covering fresh KV setup, first-deploy Durable
+  Object provisioning, local development, custom domains, current Cloudflare pricing links,
+  troubleshooting, and a deployment checklist.
+- Clarified local rate-limit behavior, aggregate statistics privacy boundaries, and the current
+  scope and gaps of automated browser coverage.
+
 ### Added
 
 - **Browser end-to-end coverage** with Playwright in CI. Chromium runs the real create, reveal,

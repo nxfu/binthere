@@ -11,7 +11,8 @@
 <p align="center">
   <a href="https://binthere.gaury.dev">Try it live</a> ·
   <a href="https://www.npmjs.com/package/binthere">Install the CLI</a> ·
-  <a href="./SPEC.md">Documentation</a> ·
+  <a href="./SPEC.md">Protocol documentation</a> ·
+  <a href="./SELF_HOSTING.md">Self-hosting guide</a> ·
   <a href="https://github.com/nxfu/binthere/issues">Report a bug</a>
 </p>
 
@@ -91,7 +92,7 @@ even under simultaneous clicks — a Durable Object guarantees it), and everyone
 | Auto-expiry | Every new note deletes itself after 24 hours. |
 | Safe rendering | Auto-detected syntax highlighting and a safe Markdown subset (no raw HTML, sanitized links). All rendering is DOM-construction only — never `innerHTML`. |
 | Sharing tools | Copy link, QR code, delete link. |
-| Minimal surface | Strict CSP, self-hosted fonts, no third-party scripts, no user analytics, no accounts. |
+| Minimal surface | Strict CSP, self-hosted fonts, no third-party scripts, no visitor-level analytics, no accounts. |
 
 > [!NOTE]
 > New pastes always expire after 24 hours and burn after one read. The reader still supports
@@ -118,8 +119,9 @@ npm install
 npm run dev      # wrangler dev → http://127.0.0.1:8787
 ```
 
-KV, the Durable Object, and rate limiting are all emulated locally — no Cloudflare account
-needed for development.
+KV and Durable Object storage are emulated locally, so ordinary development needs no
+Cloudflare account. The native rate-limit binding is not emulated locally; requests fail open
+when it is unavailable.
 
 | Command | Description |
 | --- | --- |
@@ -158,43 +160,19 @@ non-essential motion. Globally installed copies can update themselves with `bint
 
 ## Self-hosting
 
-You can run your own binthere — nothing about the design ties it to the public instance, and
-there is no managed service in the loop. Because it's a single Cloudflare Worker (Static
-Assets + KV + a Durable Object), it's **optimized for Cloudflare Workers** and one of its
-biggest advantages is cost: a complete instance fits inside
-[Cloudflare's free tier](https://developers.cloudflare.com/workers/platform/pricing/), so you
-can host binthere **completely free**.
+You can run an independent instance on your Cloudflare account. The repository includes a
+manual setup with fresh KV namespaces and a SQLite-backed Durable Object; no maintainer
+resource IDs are required. Cloudflare Free plan quotas may cover low-traffic personal use,
+but usage limits, plan rules, and prices can change. Usage above included allowances may incur
+charges or be limited. Review [Cloudflare Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/)
+before deploying.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/nxfu/binthere)
 
-The button above clones the repo and provisions everything declared in
-[`wrangler.toml`](./wrangler.toml) — the static assets, the `PASTES` KV binding, the
-`BurnPaste` Durable Object + migration, and the `CREATE_RL` rate limiter — on your own
-Cloudflare account. The importer creates fresh resources and rewrites the resource ids in
-*your* copy of the config; the checked-in ids belong to the origin deployment and are
-identifiers, not secrets.
-
-If the one-click path ever misbehaves, the manual route below is the guaranteed fallback:
-
-```bash
-npm run kv:create        # create your own PASTES KV namespace (+ preview)
-# paste the printed id / preview_id into wrangler.toml
-npm run deploy           # creates the Worker, Durable Object, and rate limiter
-```
-
-Set the public identity in [`public/site-config.json`](./public/site-config.json): your
-canonical origin, GitHub repository (`owner/name`), developer and announcement URLs, and
-security contact email. `npm run dev` and `npm run deploy` apply those values to the social
-preview metadata, repository links, `/api/stars`, and `security.txt`. Run
-`npm run configure-site` by itself to review the generated diff before deploying. The
-star-count snapshot is refreshed by a Worker Cron Trigger once daily at 00:00 UTC.
-OpenGraph image artwork still includes the origin domain; edit
-[`tools/opengraph.html`](./tools/opengraph.html) and re-render with `node tools/render-og.mjs`
-if you want a branded card for your fork.
-
-Replace the KV `id` / `preview_id` in `wrangler.toml` with your own (a pristine template is in
-[`wrangler.toml.example`](./wrangler.toml.example)). `npm run dev` works with placeholder KV
-ids because KV is emulated locally.
+For the manual, copy-ready setup, custom domain steps, cost notes, and verification checklist,
+see the [self-hosting guide](./SELF_HOSTING.md). The optional one-click button provisions the
+resources described by the deployment configuration; the manual guide explains how to create
+and bind your own resources if you prefer to manage setup yourself.
 
 ## Architecture
 
