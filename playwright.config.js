@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://127.0.0.1:8787';
+const baseURL = 'http://127.0.0.1:8787';
 
 export default defineConfig({
   testDir: './browser-tests',
@@ -13,10 +13,12 @@ export default defineConfig({
     ...devices['Desktop Chrome'],
     trace: 'retain-on-failure',
   },
-  webServer: process.env.PLAYWRIGHT_BASE_URL ? undefined : {
+  webServer: {
     command: 'npm run dev -- --ip 127.0.0.1 --port 8787',
     url: baseURL,
-    reuseExistingServer: !process.env.CI,
+    // Never reuse an arbitrary server or allow these destructive-flow tests
+    // to be pointed at a production URL. Always start a local Wrangler Worker.
+    reuseExistingServer: false,
     timeout: 120_000,
   },
 });
