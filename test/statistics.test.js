@@ -53,7 +53,7 @@ describe('anonymous paste statistics', () => {
 
     const pending = [];
     recordPasteCreation({ waitUntil: (promise) => pending.push(promise) }, {
-      PASTE_STATS: { idFromName() { throw new Error('simulated unavailable counter'); } },
+      BURN: { idFromName() { throw new Error('simulated unavailable counter'); } },
     });
     await expect(Promise.all(pending)).resolves.toEqual([undefined]);
   });
