@@ -164,13 +164,13 @@ in §5.2) and returns it (minus private fields) on read.
     "iter": 310000 | 0,               // PBKDF2 iterations; MUST be 0 iff kdf == "hkdf"
     "comp": "gzip" | "none",
     "fmt":  "plaintext" | "code" | "markdown",
-    "bar":  false | true,              // burn after reading
+    "bar":  true,                      // new pastes are always one-time view
     "ivc":  "<b64url>",                // exactly 12 bytes
     "ivw":  "<b64url>",                // exactly 12 bytes
     "skdf": "<b64url>" | ""            // 16 bytes iff kdf=="pbkdf2-hkdf", else ""
   },
   "meta": {
-    "expire": "5min"|"10min"|"1hour"|"1day"|"1week"|"1month"|"1year"|"never"
+    "expire": "1day"                 // new pastes always expire after 24 hours
   }
 }
 ```
@@ -201,7 +201,10 @@ Parsing is strict. The validator:
    - `comp ∈ {"gzip","none"}`; `fmt ∈ {"plaintext","code","markdown"}`; `bar` is a boolean.
    - `ivc`, `ivw` decode to exactly 12 bytes; `skdf` decodes to exactly 16 bytes iff
      `kdf==="pbkdf2-hkdf"`, else is `""`.
-   - `meta.expire` ∈ the allowed set.
+   - New `POST /api/paste` requests require `adata.bar === true` and
+     `meta.expire === "1day"`. The v1 reader still accepts former lifecycle values so links
+     created before this product restriction remain readable; they cannot be created through
+     the current API or official clients.
 3. Any malformed JSON, bad base64url, wrong type, wrong length, unknown field, unsupported
    version/alg, out-of-range iteration count, or pollution-shaped key ⇒ **HTTP 400**, no
    storage, no partial state.
@@ -215,7 +218,7 @@ Parsing is strict. The validator:
 | `MAX_PLAINTEXT`  | 1 MiB        | Client, before compression; and as decompression cap.     |
 | `MAX_CT_B64`     | 3 000 000    | Server: max length of `ct` (b64url chars). Else **413**.  |
 | `MAX_BODY`       | 4 MiB        | Server: max request body bytes. Else **413**.             |
-| `MAX_BURN_RECORD`| 1 900 000    | Server: max serialized burn record (`{paste,dth,exp}` JSON chars) — SQLite-backed DO storage caps a value at ~2 MB, below what `MAX_CT_B64` admits. Burn creates over this get **413**; KV pastes are unaffected. |
+| `MAX_BURN_RECORD`| 1 900 000    | Server: max serialized new-paste record (`{paste,dth,exp}` JSON chars) — SQLite-backed DO storage caps a value at ~2 MB, below what `MAX_CT_B64` admits. Oversized creates get **413**; legacy KV records are unaffected. |
 | `ITER` (v1)      | 310000      | PBKDF2 iterations for new pastes.                         |
 | `ITER_MIN`       | 100000      | Validation floor for `adata.iter` on password pastes.     |
 | `ITER_MAX`       | 1000000     | Validation ceiling for `adata.iter`.                      |
@@ -224,9 +227,9 @@ Parsing is strict. The validator:
 
 ## 7. Identifiers, storage classes, delete tokens
 
-- **Paste id** = `classPrefix ‖ b64url(random(16))`, where `classPrefix ∈ {"k","b"}`:
-  - `"k"` — normal paste, stored in **KV** (`PASTES`), immutable, with native TTL expiry.
-  - `"b"` — burn-after-read paste, stored in the **`BurnPaste` Durable Object**.
+- **New paste id** = `"b" ‖ b64url(random(16))`; new pastes are stored in the
+  **`BurnPaste` Durable Object**. Legacy `"k"` ids remain readable and deletable from KV so
+  existing reusable v1 links continue to work; the current API no longer creates them.
   The 16 random bytes provide 128 bits of entropy independent of the 1-char class prefix.
   The read path selects the store by inspecting the prefix — no extra lookup.
 - **Delete token** = `b64url(random(32))` (256 bits). The server stores only
@@ -286,7 +289,8 @@ trigger it — and never releases content (`DELETE` returns no paste body).
 
 ## 9. Expiry
 
-`meta.expire` maps to a TTL in seconds:
+Legacy v1 `meta.expire` values map to a TTL in seconds. New API requests are restricted to
+`1day`:
 
 | key     | seconds   |   | key      | seconds    |
 |---------|-----------|---|----------|------------|
@@ -296,8 +300,8 @@ trigger it — and never releases content (`DELETE` returns no paste body).
 | `1day`  | 86400     |   |          |            |
 | `1week` | 604800    |   |          |            |
 
-- KV pastes: passed as `expirationTtl` (omitted when `never`).
-- Burn (DO) pastes: an `alarm` is scheduled at `created + ttl` (none when `never`).
+- Legacy KV pastes retain their stored native TTL.
+- New burn pastes schedule a DO alarm at `created + 86400` seconds.
 
 ---
 
@@ -305,16 +309,25 @@ trigger it — and never releases content (`DELETE` returns no paste body).
 
 | Method & path            | Body / params                    | Success        | Errors                          |
 |--------------------------|----------------------------------|----------------|---------------------------------|
-| `POST /api/paste`        | format v1 JSON (§5.1)            | `201` + result | `400` invalid · `413` too large · `415` wrong content-type · `429` rate-limited |
-| `GET /api/paste/:id`     | — (burn ids: head only, no consume) | `200` + paste (KV) / head (burn) | `404` missing/expired · `410` burned/expired |
+| `POST /api/paste`        | format v1 JSON, one-time + 24 h (§5.1) | `201` + result | `400` invalid/unsupported lifecycle · `413` too large · `415` wrong content-type · `429` rate-limited |
+| `GET /api/paste/:id`     | — (burn ids: head only, no consume) | `200` + legacy paste (KV) / head (burn) | `404` missing/expired · `410` burned/expired |
 | `GET /api/paste/:id?meta=1` | — (head for every class, no consume) | `200` + head | `404` missing · `410` burned/expired |
 | `POST /api/paste/:id/consume` | `X-Burn-Intent: consume` header (burn ids only) | `200` + paste | `400` missing header · `403` cross-site · `404` malformed/non-burn id · `410` burned/expired |
 | `DELETE /api/paste/:id`  | `X-Delete-Token: <deleteToken>` header | `200`    | `400` missing token · `403` wrong token · `404` missing |
 
-The site also serves `GET /api/stars`, which answers `{ "stars": <integer> }` from a cached
-proxy of the repository's public GitHub star count (`502` when GitHub is unavailable). It exists
-for the topbar badge, touches no paste state, and is **not part of this protocol** — a
-conforming client never calls it.
+The site also serves `GET /api/stars`, which answers `{ "stars": <integer> }` from the last
+successful GitHub star-count snapshot stored in KV (`503` before the first successful refresh
+or when the snapshot cannot be read). A Cron Trigger fetches the repository count once daily at
+00:00 UTC and writes it only when it differs from the stored count. The endpoint itself never
+calls GitHub. It exists for the topbar badge, touches no paste state, and is **not part of this
+protocol** — a conforming client never calls it.
+
+The site also exposes `GET /api/statistics`, returning an aggregate response such as
+`{ "totalPastes": 42, "baseline": 0, "scope": "successfully created pastes since statistics deployment" }`.
+This count starts at zero when the feature is deployed: consumed, deleted, and expired records
+cannot be enumerated to reconstruct historical creations. Counter updates receive no paste ID
+or content and are best-effort, separate from paste storage and lifecycle. This endpoint is
+public, read-only, briefly cacheable, and **not part of the paste protocol**.
 
 `POST /api/paste` requires `Content-Type: application/json` (parameters such as `charset`
 are allowed); anything else is a `415`. This forces a CORS preflight for cross-origin browser
@@ -359,6 +372,10 @@ endpoint's protections.
 ## 11. Test vectors
 
 Fixed vectors (pinned in `test/crypto.test.js`) use `comp="none"` for determinism and cover:
+
+The vectors preserve the original v1 cryptographic examples, including a `bar=false` fixture.
+That fixture is for validating legacy reads; current API creates require `bar=true` and
+`expire="1day"` (§5.3).
 
 1. **No-password wrap/unwrap:** given `F`, `CEK`, `iv_wrap`, `AAD` ⇒ expected `wk`; unwrap
    returns `CEK`.

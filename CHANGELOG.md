@@ -8,15 +8,19 @@ versioned separately from the application (see [`SPEC.md`](./SPEC.md), currently
 
 ### Added
 
-- **GitHub star badge in the topbar** — the mark, a hairline divider, a star and the live
-  count, linking to the repository. The count comes from `GET /api/stars`, a new Worker route
-  that proxies GitHub's public repo endpoint: `connect-src 'self'` rules out calling
-  `api.github.com` from the page, and the proxy is edge-cached (30 min, 60s on failure) so a
-  burst of visitors costs GitHub one request per colo rather than one per page load. It is the
-  only route that is cached instead of `no-store`, carries nothing visitor-specific, and is not
-  part of the paste protocol (SPEC §10). Failures degrade to a plain repository link; the last
-  count is kept in `localStorage` so a repeat visit paints the badge with the rest of the
-  topbar instead of widening it mid-read.
+- **Browser end-to-end coverage** with Playwright in CI. Chromium runs the real create, reveal,
+  burn, password retry, and download flows and checks for CSP violations across the pages.
+- **One-file self-host configuration.** `public/site-config.json` now drives canonical/social
+  metadata, repository and footer links, the GitHub star proxy, and `security.txt`; the dev and
+  deploy commands apply it automatically.
+
+- **GitHub star badge in the topbar** — the mark, a hairline divider, a star and the count,
+  linking to the repository. A Worker Cron Trigger fetches the public repo count once daily at
+  00:00 UTC and stores it in KV only if it changed. `GET /api/stars` reads that snapshot and
+  never calls GitHub, so page visits do not use GitHub API quota. The endpoint is not part of
+  the paste protocol (SPEC §10). Before the first successful refresh or when the snapshot is
+  unavailable, the badge degrades to a plain repository link; the last count is kept in
+  `localStorage` so a repeat visit paints the badge with the rest of the topbar.
 
 ### Security
 
@@ -29,6 +33,13 @@ versioned separately from the application (see [`SPEC.md`](./SPEC.md), currently
   honest-client fast path. No protocol change — same 4 MiB limit, same `413` (SPEC §6).
 
 ### Changed
+
+- **Star counts refresh once daily at 00:00 UTC.** Only the scheduled Worker calls GitHub; it
+  compares the new count with the KV snapshot and skips the write when unchanged. The public
+  endpoint serves the stored count and no longer spends GitHub API quota per colo or visitor.
+- **New pastes now have one fixed lifecycle:** one-time view and 24-hour expiry. The API no
+  longer writes reusable or custom-expiry pastes, and the browser and CLI crypto clients do not
+  expose those settings. Existing v1 links remain readable and deletable.
 
 - **The CLI TUI has smoother motion and clearer page transitions.** Animation uses
   deadline-based frame pacing; the logo shine starts immediately and repeats every six

@@ -15,20 +15,30 @@ one `wrangler.toml`) keeps the security-sensitive integration surface small.
   GET /fonts/…           │        │                       • exact file, else SPA fallback index.html │
                          │        │                                                                  │
   POST   /api/paste      │        └─ path /api/*     ─▶  src/index.js router                          │
-  GET    /api/paste/:id  │                                 ├─ POST  create  ─▶ KV or BurnPaste DO     │
+  GET    /api/paste/:id  │                                 ├─ POST  create  ─▶ BurnPaste DO           │
   DELETE /api/paste/:id  │                                 ├─ GET   read    ─▶ KV or BurnPaste DO     │
                          │                                 ├─ DELETE delete ─▶ KV or BurnPaste DO     │
-  GET    /api/stars      │                                 └─ GET   stars   ─▶ api.github.com (cached)│
+  GET    /api/stars      │                                 ├─ GET   stars   ─▶ PASTES KV snapshot   │
+  GET /api/statistics    │                                 └─ GET statistics ─▶ aggregate DO shards │
                          └──────────────────────────────────────────────────────────────────────────┘
+                                      ▲
+                                      │ scheduled daily at 00:00 UTC
+                                      └──────── api.github.com → compare → write only if changed
 ```
 
 - `_headers` (in `public/`) applies the strict CSP + security headers to every asset response.
 - `not_found_handling = "single-page-application"` makes `/p/<id>` serve `index.html`; the
   client reads the id from the path and the key from the `#fragment`.
-- `GET /api/stars` is the one route outside the paste path: it proxies the repository's public
-  star count for the topbar badge, since the page cannot reach `api.github.com` itself under
-  `connect-src 'self'`. The answer is the same for every visitor, says nothing about them, and
-  is cached at the edge and in the browser (30 min) so page loads don't become GitHub requests.
+- `GET /api/stars` is a route outside the paste path: it reads the repository's public
+  star count snapshot from `PASTES` KV for the topbar badge. A Cron Trigger fetches GitHub once
+  daily at 00:00 UTC and writes the snapshot only when the count changes. Visitors never call
+  GitHub; the endpoint response is cached in the browser for 30 minutes. Before the first
+  successful scheduled refresh, it returns `503` and the UI falls back to the repository link.
+- `GET /api/statistics` reads and sums 16 Durable Object shards. A successful paste write
+  schedules one anonymous increment on a randomly selected shard with `waitUntil`; only the
+  increment is sent, never a paste ID or any paste/request data. The response is cached briefly
+  and exposes only `{ totalPastes, baseline, scope }`. Writes are best-effort and cannot fail
+  paste creation.
 
 ## Zero-knowledge boundary
 
@@ -40,10 +50,11 @@ expiry option, and — server-side only — a `SHA-256` of the delete token. See
 ## Storage routing (by id prefix)
 
 Paste ids carry a 1-char class prefix so the read path picks the backend with **no extra
-lookup**, and the client knows a burn paste is single-use *before* fetching it:
+lookup**. New ids use the burn class; the KV class remains for reading and deleting older v1
+links:
 
-- `k…` → **KV** (`PASTES`). Immutable value `{ p: paste, dth }`, native `expirationTtl`.
-  Reads are idempotent; eventual consistency is fine because the value never changes.
+- `k…` → **KV** (`PASTES`). Legacy immutable value `{ p: paste, dth }`, native TTL. Reads are
+  idempotent; the API no longer creates new `k…` pastes.
 - `b…` → **`BurnPaste` Durable Object**, addressed `idFromName(id)`. The value lives in DO
   storage. Every mutation runs inside `blockConcurrencyWhile`, so read-and-delete is atomic:
   the first `consume()` returns the ciphertext and deletes it; concurrent/later reads get
@@ -52,10 +63,9 @@ lookup**, and the client knows a burn paste is single-use *before* fetching it:
   destructive read (`SPEC.md` §8). Expiry is a DO `alarm` plus a lazy check on read.
 
 ```
-create ─┬─ bar=false ─▶ id="k…" ─▶ PASTES.put(id, {p, dth}, {expirationTtl})
-        └─ bar=true  ─▶ id="b…" ─▶ BURN.get(idFromName(id)).create(paste, dth, ttl)
+create ─▶ id="b…" ─▶ BURN.get(idFromName(id)).create(paste, dth, 86400)
 
-read   ─┬─ id[0]="k" ─▶ PASTES.get → 200 | 404
+read   ─┬─ id[0]="k" ─▶ PASTES.get → 200 | 404 (legacy)
         ├─ id[0]="b" ─▶ BURN…consume() → 200 (once) | 410
         └─ id[0]="b" + ?meta=1 ─▶ BURN…peek() → 200 head (no consume) | 410
 ```
@@ -68,7 +78,7 @@ asset** and the **Worker bundles the same file** — one source of truth for the
 | Module | Runs in | Responsibility |
 |---|---|---|
 | `public/js/bytes.js` | browser + worker + tests | base64url, SHA-256, CSPRNG bytes, constant-time hex compare |
-| `public/js/format.js` | browser + worker + tests | paste format v1 validation (fail-closed) + canonical AAD + expiry map |
+| `public/js/format.js` | browser + worker + tests | paste format v1 validation (fail-closed), legacy expiry parsing, and canonical AAD |
 | `public/js/crypto.js` | browser + tests | the protocol: PBKDF2/HKDF/AES-GCM, gzip with decompression cap |
 | `public/js/markdown.js` | browser + tests | safe Markdown → DOM (no raw HTML, href allowlist) |
 | `public/js/highlight.js` | browser + tests | code detection + `textContent`-only syntax highlighting |
@@ -77,7 +87,18 @@ asset** and the **Worker bundles the same file** — one source of truth for the
 | `public/js/qrcode.js` | browser | vendored MIT `qrcode-generator` (rendered as a `data:` image) |
 | `src/index.js` | worker | API routing, size guard, id allocation, error mapping |
 | `src/burn-do.js` | worker | `BurnPaste` Durable Object |
-| `src/lib/{ids,store,ratelimit,stars}.js` | worker | id/token gen + hashing, KV/DO routing + expiry, rate-limit wrapper, cached star-count proxy |
+| `src/statistics-do.js` | worker | Per-shard aggregate paste creation integer only |
+| `src/lib/{ids,store,ratelimit,stars,statistics}.js` | worker | id/token gen + hashing, legacy KV reads, burn storage, rate limiting, stars, anonymous aggregate count |
+
+## Aggregate paste statistics and history
+
+The statistics counter starts at a documented baseline of zero and counts successful new paste
+storage commits from the deployment that enables it. No trustworthy lifetime total can be
+reconstructed: new burn records are stored in one Durable Object per paste and are erased on
+consumption, explicit deletion, or expiry; older KV records also disappear on TTL expiry or
+deletion. KV enumeration could at most find some remaining legacy records, not consumed or
+expired creations, and would not establish a lifetime count. The statistics store is separate
+from paste storage and does not change encryption, identity, consumption, or deletion behavior.
 
 ### The CLI client
 
@@ -110,10 +131,13 @@ The frozen crypto vectors are regenerated with `node test/genvectors.mjs` (spec-
 hand-edited) and independently cross-checked by a from-scratch Python implementation
 (`tools/verify-vectors.py`).
 
-The CLI has its own suites under `cli/test/`, run as a **second vitest project in plain Node**
-(`npm run test:cli`; `npm test` runs both projects): the SPEC §11 vectors re-verified against
+The CLI has its own suites under `cli/test/`, run in plain Node (`npm run test:cli`; `npm test`
+runs the Worker, DOM, and CLI suites): the SPEC §11 vectors re-verified against
 Node's WebCrypto, URL parsing, mocked-API round trips (including burn-ordering and wrong-token
 assertions), TUI/QR rendering, and the vendor-drift byte-compare against `public/js/`.
 
+`browser-tests/` runs the real app in Chromium through Wrangler dev. It covers create, reveal,
+burn, password retry, download, and zero CSP violations; `npm run test:e2e` runs it locally.
+
 CI (`.github/workflows/ci.yml`) runs lint, a byte-for-byte diff of the regenerated vectors
-against `test/vectors.expected.txt`, and both suites on every push/PR.
+against `test/vectors.expected.txt`, the Vitest suites, and Playwright on every push/PR.
