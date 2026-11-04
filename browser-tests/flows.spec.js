@@ -171,6 +171,25 @@ for (const { statusCode, message } of [
 for (const { statusCode, message } of [
   { statusCode: 404, message: 'This paste was not found.' },
   { statusCode: 410, message: 'This paste has expired or was already consumed.' },
+  { statusCode: 429, message: 'Too many requests.' },
+  { statusCode: 503, message: 'The server could not complete the request (HTTP 503).' },
+]) {
+  test(`distinguishes legacy paste read HTTP ${statusCode}`, async ({ page }) => {
+    const id = `k${'A'.repeat(22)}`;
+    await page.route((url) => url.pathname === `/api/paste/${id}`, (route) => route.fulfill({
+      status: statusCode,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'simulated failure' }),
+    }));
+
+    await page.goto(`/p/${id}#${'A'.repeat(43)}`);
+    await expect(page.locator('#status-msg')).toContainText(message);
+  });
+}
+
+for (const { statusCode, message } of [
+  { statusCode: 404, message: 'This paste was not found.' },
+  { statusCode: 410, message: 'This paste has expired or was already consumed.' },
   { statusCode: 429, message: 'The consume request was rate limited.' },
   { statusCode: 503, message: 'The server returned HTTP 503. Could not confirm whether the paste was consumed.' },
 ]) {
