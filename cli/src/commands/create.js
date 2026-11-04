@@ -28,13 +28,14 @@ const OPTIONS = {
   server: { type: 'string', short: 's' },
   json: { type: 'boolean', default: false, short: 'j' },
   qr: { type: 'boolean', default: false, short: 'q' },
+  quiet: { type: 'boolean', default: false },
 };
 
 export async function cmdCreate(args, io) {
-  let values;
+  let values, positionals;
   try {
     // allowPositionals: false → parseArgs throws on any positional.
-    ({ values } = parseArgs({ args, options: OPTIONS, allowPositionals: false, strict: true }));
+    ({ values, positionals } = parseArgs({ args, options: OPTIONS, allowPositionals: true, strict: true }));
   } catch (e) {
     throw new UsageError(e.message);
   }
@@ -45,15 +46,16 @@ export async function cmdCreate(args, io) {
   if (values.password && values['password-env'] !== undefined) {
     throw new UsageError('--password and --password-env are mutually exclusive');
   }
-  if (values.text !== undefined && values.file !== undefined) {
-    throw new UsageError('--text and --file are mutually exclusive');
+  if (positionals.length > 1) throw new UsageError('create accepts at most one positional text argument');
+  if ([values.text, values.file, positionals[0]].filter((value) => value !== undefined).length > 1) {
+    throw new UsageError('positional text, --text, and --file are mutually exclusive');
   }
 
   const server = normalizeServer(values.server ?? io.env.BINTHERE_SERVER ?? DEFAULT_SERVER);
 
   let raw;
-  if (values.text !== undefined) {
-    raw = Buffer.from(values.text, 'utf8');
+  if (positionals.length === 1 || values.text !== undefined) {
+    raw = Buffer.from(positionals[0] ?? values.text, 'utf8');
   } else if (values.file !== undefined) {
     try {
       raw = await readFile(values.file);
@@ -98,8 +100,10 @@ export async function cmdCreate(args, io) {
     io.stdout(JSON.stringify({ url, id, deletetoken }) + '\n');
   } else {
     io.stdout(url + '\n');
-    io.stderr(`delete token: ${deletetoken}\n`);
-    io.stderr(`${LIFECYCLE_NOTE}\n`);
+    if (!values.quiet) {
+      io.stderr(`delete token: ${deletetoken}\n`);
+      io.stderr(`${LIFECYCLE_NOTE}\n`);
+    }
   }
   if (values.qr) {
     const qr = renderQr(url);

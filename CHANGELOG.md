@@ -6,6 +6,11 @@ versioned separately from the application (see [`SPEC.md`](./SPEC.md), currently
 
 ## [Unreleased]
 
+### Changed
+
+- **The CLI command redesign is the next CLI release, `0.2.0`.** CLI releases are versioned
+  independently from the web application; the repository root version remains `1.1.0`.
+
 ### Added
 
 - **GitHub star badge in the topbar** — the mark, a hairline divider, a star and the live

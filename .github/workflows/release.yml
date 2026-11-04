@@ -1,6 +1,6 @@
 # Release automation for the CLI (npm package `binthere`, published from cli/).
 #
-# Trigger: push a tag like `cli-v0.1.0`. The job re-runs the full test matrix's
+# Trigger: push a tag like `cli-v0.2.0`. The job re-runs the full test matrix's
 # core (lint + all three vitest projects + vector byte-diff + vendor drift),
 # verifies the tag matches cli/package.json's version, then publishes with npm
 # provenance (supply-chain attestation binding the tarball to this exact

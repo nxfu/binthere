@@ -13,12 +13,8 @@ import { cmdDelete } from './commands/delete.js';
 import { cmdGet } from './commands/get.js';
 import { cmdUpdate, cmdVersion } from './commands/update.js';
 import { AbortError, UsageError } from './errors.js';
-import { confirm, promptHidden, promptLine, promptMultiline } from './prompt.js';
-import { copyToClipboard } from './tui/clipboard.js';
-import { readKey, releaseKeys } from './tui/keys.js';
-import { center } from './tui/screen.js';
+import { confirm, promptHidden } from './prompt.js';
 import { DEFAULT_SERVER } from './url.js';
-import { runWizard } from './wizard.js';
 
 export const VERSION = createRequire(import.meta.url)('../package.json').version;
 
@@ -29,7 +25,7 @@ Notes are encrypted locally (AES-256-GCM); the key travels in the URL
 every note deletes after one read, or after 24 hours.
 
 Usage:
-  binthere                           interactive: write a note, get its link + QR
+  binthere                           show this help
   binthere create [flags]            encrypt stdin, --text, or --file; print the share URL
   binthere get <share-url | ->       fetch and decrypt a note ("-" reads the URL from stdin)
   binthere view <share-url | ->      alias for get
@@ -57,9 +53,9 @@ Global:
   -h, --help             show this help (also after a command)
   -V, --version          print the version
 
-"create" is assumed when stdin is piped with no command, or when --text is given:
-  git diff | binthere
-  binthere -t "meet at 6"
+Create requires an explicit command:
+  git diff | binthere create
+  binthere create --text "meet at 6"
 
 The share URL (including its secret #fragment) is visible to other local
 processes when passed as an argument; prefer  echo <url> | binthere get -
@@ -75,44 +71,14 @@ export function defaultIo() {
     stdinIsTTY: Boolean(process.stdin.isTTY),
     stdoutIsTTY: Boolean(process.stdout.isTTY),
     stderrIsTTY: Boolean(process.stderr.isTTY),
-    columns: () => process.stderr.columns ?? 80,
-    rows: () => process.stderr.rows ?? 24,
     readStdin: async () => {
       const chunks = [];
       for await (const chunk of process.stdin) chunks.push(chunk);
       return Buffer.concat(chunks);
     },
     promptHidden: (question) => promptHidden(question),
-    promptLine: (question) => promptLine(question),
-    promptMultiline: (prompt) => promptMultiline({ prompt }),
     confirm: (question) => confirm(question),
-    readKey: () => readKey(),
-    // Hand stdin back after a readKey-driven screen (menu, result screen) so
-    // the readline-based prompts get a clean stream — see tui/keys.js.
-    releaseKeys: () => releaseKeys(),
-    // Swallow keystrokes during a non-interactive stretch (the wizard intro):
-    // raw mode stops the terminal echoing them over the animation, and the
-    // discard listener keeps them from buffering into the first menu read.
-    // Ctrl+C is re-raised as a real SIGINT so aborting still works (the
-    // bin/binthere.js handler restores the terminal). Returns an unmute fn.
-    muteInput: () => {
-      if (!process.stdin.isTTY) return () => {};
-      const discard = (buf) => {
-        if (buf.includes(0x03)) process.kill(process.pid, 'SIGINT');
-      };
-      process.stdin.setRawMode(true);
-      process.stdin.resume();
-      process.stdin.on('data', discard);
-      // Unmute only removes the discard listener. Raw mode and flow stay on:
-      // the menu's key reader takes over immediately, and toggling the conpty
-      // console mode in between races its async mode application (see
-      // tui/keys.js). bin/binthere.js restores the terminal on exit.
-      return () => {
-        process.stdin.off('data', discard);
-      };
-    },
   };
-  io.copy = (text) => copyToClipboard(text, io);
   return io;
 }
 
@@ -141,10 +107,11 @@ async function dispatch(argv, io) {
   }
   // `binthere create --help` should show help, not exit 2 with "Unknown option".
   if (rest.includes('--help') || rest.includes('-h')) {
-    io.stdout(HELP);
+    io.stdout(commandHelp(command));
     return 0;
   }
   switch (command) {
+    case 'help': io.stdout(commandHelp(rest[0])); return 0;
     case 'create': return cmdCreate(rest, io);
     case 'get':
     case 'view': return cmdGet(rest, io);
@@ -153,21 +120,22 @@ async function dispatch(argv, io) {
     case 'version': return cmdVersion(rest, io);
     case '-v': return cmdVersion(rest, io);
     default: {
-      // Default command is create when stdin is piped (`cat notes.md | binthere`)
-      // or when the content is inline (`binthere -t "hi"` / `binthere -f notes.md`
-      // — no stdin needed for either).
-      const inlineInput = argv.some((a) => a === '--text' || a.startsWith('--text=')
-        || a === '--file' || a.startsWith('--file=') || /^-[a-z]*[tf]/.test(a));
-      if ((command === undefined || command.startsWith('-')) && (!io.stdinIsTTY || inlineInput)) {
-        return cmdCreate(argv, io);
-      }
-      // Bare `binthere` on a terminal: the interactive wizard.
       if (command === undefined) {
-        return runWizard(io);
+        io.stdout(HELP);
+        return 0;
       }
-      throw new UsageError(`unknown command "${command}" (expected create, get/view, delete, update, or version)`);
+      throw new UsageError(`unknown command "${command}" (expected create, get, delete, help, update, or version)`);
     }
   }
+}
+
+function commandHelp(command) {
+  const help = {
+    create: `Usage: binthere create [text] [options]\n\nReads text from the positional argument, --text, --file, or stdin.\nOptions: --text <text>, --file <path>, --fmt <plaintext|code|markdown>,\n         --password, --password-env <VAR>, --json, --qr, --quiet, --server <url>\n`,
+    get: `Usage: binthere get <share-url|-> [options]\n\nDecrypts to stdout, or --out <path>. Burn notes are validated before consume.\nOptions: --out <path>, --yes, --password-env <VAR>\n`,
+    delete: `Usage: binthere delete <share-url|id> [options]\n\nOptions: --token-env <VAR>, --server <url>\n`,
+  };
+  return command ? (help[command] ?? HELP) : HELP;
 }
 
 /** Run the CLI. Returns the process exit code; never throws. */
@@ -175,11 +143,8 @@ export async function run(argv, io = defaultIo()) {
   try {
     return await dispatch(argv, io);
   } catch (e) {
-    // Bare `binthere` on a TTY ran the wizard, whose screens are centered —
-    // its error lines are centered to match; plain commands stay left-aligned.
-    const wizard = argv[0] === undefined && io.stdinIsTTY && typeof io.columns === 'function';
     const fail = (message, code) => {
-      io.stderr((wizard ? center(message, io.columns()) : message) + '\n');
+      io.stderr(message + '\n');
       return code;
     };
     if (e instanceof AbortError) return fail(`binthere: ${e.message}`, 130);

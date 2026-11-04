@@ -86,8 +86,6 @@ function makeServer() {
   return { fetchImpl, calls, store };
 }
 
-const scripted = (answers) => () => Promise.resolve(answers.shift());
-
 function makeIo({
   stdin = '', tty = false, stderrIsTTY = false, env = {}, server,
   promptHidden, promptLine, promptMultiline, confirm, readKey, copy,
@@ -139,6 +137,23 @@ async function seedLegacyPaste(server, text) {
 const consumes = (calls) => calls.filter((c) => c.method === 'POST' && c.path.endsWith('/consume'));
 
 describe('create → get round trip', () => {
+  it('creates from a positional text argument', async () => {
+    const server = makeServer();
+    const a = makeIo({ server });
+    expect(await run(['create', 'positional note'], a.io)).toBe(0);
+    const b = makeIo({ server });
+    expect(await run(['get', a.text.out().trim()], b.io)).toBe(0);
+    expect(b.text.out()).toBe('positional note');
+  });
+
+  it('quiet suppresses create diagnostics while keeping the URL on stdout', async () => {
+    const server = makeServer();
+    const a = makeIo({ stdin: 'quiet note', server });
+    expect(await run(['create', '--quiet'], a.io)).toBe(0);
+    expect(a.text.out()).toMatch(/\/p\/b[A-Za-z0-9_-]{22}#/);
+    expect(a.text.err()).toBe('');
+  });
+
   it('creates from stdin and decrypts from the printed share URL', async () => {
     const server = makeServer();
     const a = makeIo({ stdin: 'round trip me\n', server });
@@ -154,11 +169,12 @@ describe('create → get round trip', () => {
     expect(b.text.out()).toBe('round trip me\n');
   });
 
-  it('defaults to create when stdin is piped with no command', async () => {
+  it('shows help when no explicit command is given, even with piped input', async () => {
     const server = makeServer();
     const a = makeIo({ stdin: 'implicit create', server });
-    expect(await run(['--json'], a.io)).toBe(0);
-    expect(JSON.parse(a.text.out()).url).toMatch(/\/p\/b[A-Za-z0-9_-]{22}#/);
+    expect(await run([], a.io)).toBe(0);
+    expect(a.text.out()).toMatch(/Usage:/);
+    expect(server.calls).toHaveLength(0);
   });
 
   it('--json emits the documented object on stdout only', async () => {
@@ -255,11 +271,11 @@ describe('inline --text and short flags', () => {
     expect(b.text.out()).toBe('inline note');
   });
 
-  it('bare `binthere -t "…"` on a TTY defaults to create', async () => {
+  it('requires an explicit create command instead of accepting bare flags', async () => {
     const server = makeServer();
     const a = makeIo({ tty: true, server });
-    expect(await run(['-t', 'quick one'], a.io)).toBe(0);
-    expect(a.text.out().trim()).toMatch(/\/p\/b[A-Za-z0-9_-]{22}#/);
+    expect(await run(['-t', 'quick one'], a.io)).toBe(2);
+    expect(a.text.err()).toMatch(/unknown command/);
   });
 
   it('short flags: -t -j on create, -y on get, -s on delete', async () => {
@@ -432,201 +448,6 @@ describe('delete', () => {
   });
 });
 
-describe('interactive wizard (bare `binthere` on a TTY)', () => {
-  it('writes a note → URL on stdout; QR, token, and lifecycle on stderr', async () => {
-    const server = makeServer();
-    const a = makeIo({
-      server,
-      tty: true,
-      readKey: scripted(['enter']), // menu: Create
-      promptMultiline: scripted(['wizard note\nsecond line']),
-      confirm: () => Promise.resolve(false), // no password
-    });
-    expect(await run([], a.io)).toBe(0);
-
-    const url = a.text.out().trim();
-    expect(url).toMatch(new RegExp(`^${SERVER}/p/b[A-Za-z0-9_-]{22}#[A-Za-z0-9_-]{43}$`));
-    expect(a.text.out()).toBe(url + '\n'); // stdout is ONLY the URL (pipe-friendly)
-    expect(a.text.err()).toMatch(/delete token: /);
-    expect(a.text.err()).toMatch(/Deletes after one read, or in 24 hours\./);
-    // Compact braille QR rendered (any cell with at least one dot set).
-    const braille = new RegExp(`[${String.fromCharCode(0x2801)}-${String.fromCharCode(0x28ff)}]`);
-    expect(a.text.err()).toMatch(braille);
-
-    const b = makeIo({ server });
-    expect(await run(['get', url], b.io)).toBe(0);
-    expect(b.text.out()).toBe('wizard note\nsecond line');
-  });
-
-  it('re-prompts once on an empty note, then errors with exit 2', async () => {
-    const server = makeServer();
-    const retried = makeIo({
-      server, tty: true,
-      readKey: scripted(['enter']),
-      promptMultiline: scripted(['', 'second try']),
-      confirm: () => Promise.resolve(false),
-    });
-    expect(await run([], retried.io)).toBe(0);
-    expect(retried.text.out()).toMatch(/\/p\/b/);
-
-    const gaveUp = makeIo({
-      server, tty: true,
-      readKey: scripted(['enter']),
-      promptMultiline: scripted(['', '  ']),
-    });
-    expect(await run([], gaveUp.io)).toBe(2);
-    expect(gaveUp.text.err()).toMatch(/empty note/);
-    expect(server.calls.filter((c) => c.method === 'POST')).toHaveLength(1);
-  });
-
-  it('password: retries once on mismatch, and the note round-trips', async () => {
-    const server = makeServer();
-    const a = makeIo({
-      server,
-      tty: true,
-      readKey: scripted(['enter']),
-      promptMultiline: scripted(['guard me']),
-      confirm: () => Promise.resolve(true), // add a password
-      promptHidden: scripted(['typo', 'other', 'pw', 'pw']), // mismatch, then match
-    });
-    expect(await run([], a.io)).toBe(0);
-    expect(a.text.err()).toMatch(/do not match/);
-    const url = a.text.out().trim();
-
-    const b = makeIo({ server, env: { PW: 'pw' } });
-    expect(await run(['get', url, '--password-env', 'PW'], b.io)).toBe(0);
-    expect(b.text.out()).toBe('guard me');
-  });
-
-  it('two password mismatches abort with exit 2 and nothing is uploaded', async () => {
-    const server = makeServer();
-    const a = makeIo({
-      server,
-      tty: true,
-      readKey: scripted(['enter']),
-      promptMultiline: scripted(['never sent']),
-      confirm: () => Promise.resolve(true),
-      promptHidden: scripted(['a', 'b', 'c', 'd']),
-    });
-    expect(await run([], a.io)).toBe(2);
-    expect(server.calls).toHaveLength(0);
-  });
-
-  it('result screen copies the link with c and the token with t on a TTY', async () => {
-    const server = makeServer();
-    const copied = [];
-    const a = makeIo({
-      server, tty: true, stderrIsTTY: true, env: { NO_COLOR: '1' },
-      readKey: scripted(['enter', 'c', 't', 'enter']), // menu: Create, then copy both
-      promptMultiline: scripted(['copy me']),
-      copy: (text) => { copied.push(text); return Promise.resolve(true); },
-    });
-    expect(await run([], a.io)).toBe(0);
-    const url = a.text.out().trim();
-    const token = a.text.err().match(/delete token: (\S+)/)[1];
-    expect(copied).toEqual([url, token]); // stdin-fed fakes — secrets never in argv
-    expect(a.text.err()).toContain('link copied to clipboard');
-    expect(a.text.err()).toContain('delete token copied to clipboard');
-    // Menu → create → sealed result each performs one fresh viewport paint.
-    expect(a.text.err().split(`${String.fromCharCode(0x1b)}[2J`).length - 1).toBeGreaterThanOrEqual(3);
-  });
-
-  it('supports a static full-screen wizard without disabling color', async () => {
-    const server = makeServer();
-    const a = makeIo({
-      server, tty: true, stderrIsTTY: true,
-      env: { BINTHERE_NO_ANIMATION: '1', COLORTERM: 'truecolor' },
-      readKey: scripted(['enter', 'enter']),
-      promptMultiline: scripted(['still and readable']),
-    });
-    expect(await run([], a.io)).toBe(0);
-    expect(a.text.err()).toContain(`${String.fromCharCode(0x1b)}[38;2;`); // color remains
-    expect(a.text.err()).not.toContain(`\r${String.fromCharCode(0x1b)}[2K`); // no animated line rewrites
-    expect(a.text.out()).toMatch(/\/p\/b/);
-    expect(a.text.err().split(`${String.fromCharCode(0x1b)}[2J`).length - 1).toBe(3);
-  });
-
-  it('result screen skips the copy prompt when stderr is not a TTY', async () => {
-    const server = makeServer();
-    const a = makeIo({
-      server, tty: true,
-      readKey: scripted(['enter']),
-      promptMultiline: scripted(['plain run']),
-      copy: () => Promise.reject(new Error('must not be called')),
-    });
-    expect(await run([], a.io)).toBe(0);
-    expect(a.text.err()).not.toContain('copy link');
-  });
-
-  it('menu shows the logo header and all three actions', async () => {
-    const server = makeServer();
-    const a = makeIo({ server, tty: true, readKey: scripted(['ctrl-c']) });
-    expect(await run([], a.io)).toBe(130); // user abort = 128+SIGINT, not a usage error
-    expect(a.text.err()).toMatch(/Zero-knowledge encrypted notes/);
-    expect(a.text.err()).toMatch(/Create a note/);
-    expect(a.text.err()).toMatch(/View a note/);
-    expect(a.text.err()).toMatch(/Delete a note/);
-    expect(server.calls).toHaveLength(0); // aborting touches nothing
-  });
-
-  it('view: navigates the menu, burns the note once, and says so', async () => {
-    const server = makeServer();
-    const c = makeIo({ stdin: 'peekaboo', server });
-    expect(await run(['create'], c.io)).toBe(0);
-    const url = c.text.out().trim();
-
-    const a = makeIo({
-      server, tty: true,
-      readKey: scripted(['down', 'enter']), // menu: View
-      promptLine: scripted([url]),
-      confirm: () => Promise.resolve(true), // destructive-read confirmation
-    });
-    expect(await run([], a.io)).toBe(0);
-    expect(a.text.out()).toBe('peekaboo'); // stdout is ONLY the plaintext
-    expect(a.text.err()).toMatch(/now burned/);
-
-    const again = makeIo({ server });
-    expect(await run(['get', url], again.io)).toBe(1); // consumed
-  });
-
-  it('view: declining the burn confirmation shows no "burned" notice', async () => {
-    const server = makeServer();
-    const c = makeIo({ stdin: 'still here', server });
-    expect(await run(['create'], c.io)).toBe(0);
-    const url = c.text.out().trim();
-
-    const a = makeIo({
-      server, tty: true,
-      readKey: scripted(['2']), // hotkey jump to View
-      promptLine: scripted([url]),
-      confirm: () => Promise.resolve(false),
-    });
-    expect(await run([], a.io)).toBe(0);
-    expect(a.text.out()).toBe('');
-    expect(a.text.err()).not.toMatch(/now burned/);
-    expect(server.store.size).toBe(1); // note untouched
-  });
-
-  it('delete: wraps up from Create and deletes with the prompted token', async () => {
-    const server = makeServer();
-    const c = makeIo({ stdin: 'condemned', server });
-    expect(await run(['create', '--json'], c.io)).toBe(0);
-    const { url, deletetoken } = JSON.parse(c.text.out());
-
-    const a = makeIo({
-      server, tty: true,
-      readKey: scripted(['up', 'enter']), // wrap-around: Create → Delete
-      promptLine: scripted([url]),
-      promptHidden: scripted([deletetoken]),
-    });
-    expect(await run([], a.io)).toBe(0);
-    expect(a.text.err()).toMatch(/deleted b/);
-    expect(server.store.size).toBe(0);
-  });
-});
-
-// ── failure paths (#44): network, malformed responses, file I/O ─────────────
-
 describe('network and server failure paths', () => {
   const netFail = (code) => async () => {
     const e = new TypeError('fetch failed');
@@ -738,13 +559,11 @@ describe('dispatch and help ergonomics', () => {
     }
   });
 
-  it('bare -f dispatches to create like bare -t does', async () => {
+  it('requires `create` before create options', async () => {
     const server = makeServer();
     const a = makeIo({ server, tty: true });
-    // The file is missing, but the point is the routing: a create usage error,
-    // not "unknown command".
     expect(await run(['-f', 'definitely/does-not-exist.txt'], a.io)).toBe(2);
-    expect(a.text.err()).toMatch(/cannot read --file/);
+    expect(a.text.err()).toMatch(/unknown command/);
   });
 });
 
@@ -769,42 +588,42 @@ describe('update', () => {
   const ok = (stdout = '', stderr = '') => ({ code: 0, stdout, stderr });
 
   it('reports when the installed version is current', async () => {
-    const a = updateIo([ok('"0.1.0"\n')]);
+    const a = updateIo([ok('"0.2.0"\n')]);
     expect(await run(['update'], a.io)).toBe(0);
-    expect(a.text.out()).toBe('binthere 0.1.0 is up to date\n');
+    expect(a.text.out()).toBe('binthere 0.2.0 is up to date\n');
     expect(a.calls).toEqual([['npm', ['view', 'binthere@latest', 'version', '--json']]]);
   });
 
   it('version reports an available version without locating or changing npm globals', async () => {
-    const a = updateIo([ok('"0.2.0"\n')]);
+    const a = updateIo([ok('"0.3.0"\n')]);
     expect(await run(['version'], a.io)).toBe(0);
-    expect(a.text.out()).toBe('binthere 0.1.0; update available: 0.2.0\n');
+    expect(a.text.out()).toBe('binthere 0.2.0; update available: 0.3.0\n');
     expect(a.calls).toHaveLength(1);
   });
 
   it('-v aliases version', async () => {
-    const a = updateIo([ok('"0.1.0"\n')]);
+    const a = updateIo([ok('"0.2.0"\n')]);
     expect(await run(['-v'], a.io)).toBe(0);
-    expect(a.text.out()).toBe('binthere 0.1.0 is up to date\n');
+    expect(a.text.out()).toBe('binthere 0.2.0 is up to date\n');
     expect(a.calls).toHaveLength(1);
   });
 
   it('updates a global installation without invoking a shell', async () => {
     const a = updateIo([
-      ok('"0.2.0"\n'),
+      ok('"0.3.0"\n'),
       ok('/usr/local/lib/node_modules\n'),
       ok('changed 1 package\n'),
     ], { global: true });
     expect(await run(['update'], a.io)).toBe(0);
-    expect(a.text.err()).toBe('updating binthere 0.1.0 → 0.2.0…\n');
-    expect(a.text.out()).toBe('updated binthere 0.1.0 → 0.2.0\n');
+    expect(a.text.err()).toBe('updating binthere 0.2.0 → 0.3.0…\n');
+    expect(a.text.out()).toBe('updated binthere 0.2.0 → 0.3.0\n');
     expect(a.calls[2]).toEqual(['npm', [
       'install', '--global', '--no-audit', '--no-fund', 'binthere@latest',
     ]]);
   });
 
   it('uses npm.cmd on Windows', async () => {
-    const a = updateIo([ok('"0.1.0"\n')], { platform: 'win32' });
+    const a = updateIo([ok('"0.2.0"\n')], { platform: 'win32' });
     a.io.env.ComSpec = 'C:\\Windows\\System32\\cmd.exe';
     expect(await run(['version'], a.io)).toBe(0);
     expect(a.calls[0]).toEqual([
@@ -815,7 +634,7 @@ describe('update', () => {
 
   it('refuses to modify a checkout or temporary npx copy', async () => {
     const a = updateIo([
-      ok('"0.2.0"\n'),
+      ok('"0.3.0"\n'),
       ok('/usr/local/lib/node_modules\n'),
     ], { global: false });
     expect(await run(['update'], a.io)).toBe(1);
