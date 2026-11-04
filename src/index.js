@@ -259,7 +259,11 @@ async function consumePaste(id, request, env) {
   if (!info.burn) return err('Only one-time-view pastes can be consumed.', 404);
 
   const res = await burnStub(env, id).consume();
-  if (res.status === 'ok') return json// The repository's daily star-count snapshot for the topbar badge. Visitors
+  if (res.status === 'ok') return json(res.paste, 200);
+  return err('This document was single-use and has already been read, or has expired.', 410);
+}
+
+// The repository's daily star-count snapshot for the topbar badge. Visitors
 // only read KV; the scheduled handler is the sole GitHub API caller.
 async function readStars(env) {
   let stars;
@@ -272,11 +276,6 @@ async function readStars(env) {
     return err('Star count has not been initialized yet.', 503, {
       'cache-control': `public, max-age=${STARS_ERROR_TTL}`,
     });
-  }
-  return json({ stars }, 200, { 'cache-control': `public, max-age=${STARS_TTL}` });
-}
-
-${STARS_ERROR_TTL}` });
   }
   return json({ stars }, 200, { 'cache-control': `public, max-age=${STARS_TTL}` });
 }
