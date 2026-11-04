@@ -9,7 +9,7 @@
 import { recordPasteCreation, readPasteCreationCount } from './lib/statistics.js';
 import { validatePaste, FormatError, MAX_CT_B64 } from '../public/js/format.js';
 import { genId, parseId, genDeleteToken, hashToken, verifyToken } from './lib/ids.js';
-import { ttlSeconds, MAX_BODY, MAX_BURN_RECORD, kvExists, kvPut, kvGet, kvDelete, burnStub } from './lib/store.js';
+import { PASTE_TTL_SECONDS, MAX_BODY, MAX_BURN_RECORD, kvGet, kvDelete, burnStub } from './lib/store.js';
 import { allowCreate } from './lib/ratelimit.js';
 import { fetchStars, STARS_TTL, STARS_ERROR_TTL } from './lib/stars.js';
 
@@ -170,8 +170,14 @@ async function createPaste(request, env, ctx) {
     throw e;
   }
 
-  const burn = clean.adata.bar;
-  const ttl = ttlSeconds(clean.meta.expire);
+  // The supported product lifecycle is fixed: every newly-created paste is
+  // one-time view and expires after 24 hours. Legacy values remain readable,
+  // but cannot be used to create new records.
+  if (!clean.adata.bar || clean.meta.expire !== '1day') {
+    return err('New pastes must be one-time view and expire after 24 hours.', 400);
+  }
+
+  const ttl = PASTE_TTL_SECONDS;
   const deleteToken = genDeleteToken();
   const dth = await hashToken(deleteToken);
   const created = Math.floor(Date.now() / 1000);
@@ -185,21 +191,17 @@ async function createPaste(request, env, ctx) {
   // Burn records live in SQLite-backed DO storage, whose ~2 MB per-value limit
   // is below what MAX_CT_B64 admits: a valid-per-format record between the two
   // caps would make storage.put throw an uncaught 500 inside the DO. Reject it
-  // here with a clean 413 instead (SPEC §6). KV (25 MiB values) is unaffected.
-  if (burn && JSON.stringify({ paste, dth, exp: 0 }).length > MAX_BURN_RECORD) {
+  // here with a clean 413 instead (SPEC §6).
+  if (JSON.stringify({ paste, dth, exp: 0 }).length > MAX_BURN_RECORD) {
     return err('Document is too large for a one-time-view paste.', 413);
   }
 
-  // Generate an unused id (128-bit; collisions are astronomically unlikely, but
-  // we still check and regenerate to be safe).
+  // New pastes always use the burn Durable Object. Legacy KV records remain
+  // readable and deletable through their k-prefixed IDs.
   let id;
   for (let attempt = 0; ; attempt++) {
-    id = genId(burn);
-    if (burn) {
-      if (await burnStub(env, id).create(paste, dth, ttl)) break;
-    } else {
-      if (!(await kvExists(env, id))) { await kvPut(env, id, paste, dth, ttl); break; }
-    }
+    id = genId();
+    if (await burnStub(env, id).create(paste, dth, ttl)) break;
     if (attempt >= 4) return err('Could not allocate a paste id, please retry.', 500);
   }
 

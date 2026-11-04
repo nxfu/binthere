@@ -1,21 +1,21 @@
 // ids.js — server-side identifier and delete-token handling (SPEC.md §7).
-// Paste IDs carry 128 bits of CSPRNG entropy plus a 1-char storage-class prefix
-// (k=KV, b=burn). Delete tokens carry 256 bits; the server stores only their
-// SHA-256 and verifies in constant time. Imports the shared byte helpers.
+// New paste IDs carry the one-time Durable Object prefix `b` plus 128 bits of
+// CSPRNG entropy. The parser accepts legacy `k` IDs for existing notes. Delete
+// tokens carry 256 bits; the server stores only their SHA-256 and compares in
+// constant time.
 
 import {
   randomBytes, b64urlFromBytes, bytesFromB64url, utf8, sha256Hex, timingSafeEqualHex,
 } from '../../public/js/bytes.js';
 
-const CLASS_KV = 'k';
 const CLASS_BURN = 'b';
 const ID_RANDOM_BYTES = 16;   // 128-bit entropy
 const ID_B64_LEN = 22;        // b64url length of 16 bytes (unpadded)
 const TOKEN_BYTES = 32;       // 256-bit delete token
 
-/** Generate a paste id: class prefix + base64url(16 CSPRNG bytes). */
-export function genId(isBurn) {
-  return (isBurn ? CLASS_BURN : CLASS_KV) + b64urlFromBytes(randomBytes(ID_RANDOM_BYTES));
+/** Generate a one-time paste id: b + base64url(16 CSPRNG bytes). */
+export function genId() {
+  return CLASS_BURN + b64urlFromBytes(randomBytes(ID_RANDOM_BYTES));
 }
 
 /**
@@ -26,7 +26,7 @@ export function genId(isBurn) {
 export function parseId(id) {
   if (typeof id !== 'string' || id.length !== ID_B64_LEN + 1) return null;
   const cls = id[0];
-  if (cls !== CLASS_KV && cls !== CLASS_BURN) return null;
+  if (cls !== 'k' && cls !== CLASS_BURN) return null;
   const body = id.slice(1);
   try {
     if (bytesFromB64url(body).length !== ID_RANDOM_BYTES) return null;
