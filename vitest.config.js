@@ -26,7 +26,7 @@ export default defineConfig({
     // The CLI's suites run in plain Node via their own project
     // (cli/vitest.config.js), and the DOM-mount suites run under happy-dom
     // (vitest.dom.config.js) — keep both out of the workerd pool.
-    exclude: ['**/node_modules/**', 'cli/**', 'test-dom/**'],
+    exclude: ['**/node_modules/**', 'cli/**', 'test-dom/**', 'browser-tests/**'],
     coverage: {
       // istanbul (source instrumentation), NOT v8: the v8 provider needs
       // node:inspector, which doesn't exist inside workerd.
