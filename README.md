@@ -146,11 +146,11 @@ the same **one read / 24 hours** lifecycle as the website. Zero runtime dependen
 npm install -g binthere    # or try it without installing anything: npx binthere
 ```
 
-A bare `binthere` opens an interactive full-screen menu; it also composes in pipelines
-(`git diff | npx binthere` prints a share URL on stdout). See
-[`cli/README.md`](./cli/README.md) for the full command reference, interactive-mode tour,
-and security notes. Set `BINTHERE_NO_ANIMATION=1` to keep the colored TUI while disabling
-non-essential motion. Globally installed copies can update themselves with `binthere update`.
+The CLI uses explicit commands: `binthere create`, `binthere get <share-url>`, and
+`binthere delete <share-url-or-id>`. A bare `binthere` prints help; piped content is consumed
+only by an explicit `create` command (`git diff | npx binthere create`). See
+[`cli/README.md`](./cli/README.md) for the command reference and security notes. Globally
+installed copies can update themselves with `binthere update`.
 
 ## Self-hosting
 

@@ -158,7 +158,7 @@ binthere create -t "hello" --server https://paste.example.com
 
 # Or make it the default for the session
 export BINTHERE_SERVER=https://paste.example.com
-git diff | binthere            # uploads to paste.example.com
+git diff | binthere create    # uploads to paste.example.com
 ```
 
 HTTPS is required for every server except `localhost` / `127.0.0.1`, so a local
