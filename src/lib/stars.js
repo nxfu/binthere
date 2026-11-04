@@ -1,54 +1,59 @@
-// stars.js — the GitHub star count behind the topbar badge.
-//
-// The page cannot call api.github.com itself (CSP: connect-src 'self'), so the
-// Worker proxies it and answers `{"stars":N}`. The upstream call is edge-cached,
-// so a burst of visitors costs GitHub one request per colo per TTL instead of
-// one per page load — well inside the 60/hour unauthenticated limit. Nothing
-// here touches paste data; it is a public, visitor-independent number.
+// Daily snapshot of the repository's star count. The scheduled Worker is the
+// only code that calls GitHub; visitors read the last successful value from KV.
 
-const REPO_API = 'https://api.github.com/repos/nxfu/binthere';
-
-/** How long a count may be stale, at the edge and in the browser. */
+export const STAR_COUNT_KEY = 'system:github-stars:v1';
 export const STARS_TTL = 1800;
-/** Shorter, so a GitHub outage isn't pinned for half an hour. */
 export const STARS_ERROR_TTL = 60;
 
-/**
- * Fetch the repository's star count. Returns null on any anomaly — a failed
- * request, a non-200, or a payload that isn't a repo object — so the caller can
- * answer honestly rather than serve a made-up number.
- */
-export async function fetchStars() {
-  let res;
+const USER_AGENT = 'binthere (+https://binthere.gaury.dev)';
+
+/** Fetch the count once from GitHub's REST API. Returns null on failure. */
+export async function fetchStars(repository) {
+  if (typeof repository !== 'string' || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) return null;
+
+  let response;
   try {
-    res = await fetch(REPO_API, {
+    response = await fetch(`https://api.github.com/repos/${repository}`, {
       headers: {
-        // GitHub rejects API requests without a User-Agent and asks that it
-        // identify the caller.
-        'user-agent': 'binthere (+https://binthere.gaury.dev)',
+        'user-agent': USER_AGENT,
         accept: 'application/vnd.github+json',
       },
-      // Ignored by `wrangler dev` (no edge cache locally), so dev hits GitHub
-      // on every load.
-      cf: { cacheTtlByStatus: { '200-299': STARS_TTL, '400-599': STARS_ERROR_TTL } },
     });
   } catch {
     return null;
   }
-  if (!res.ok) return null;
+  if (!response.ok) return null;
 
-  let data;
   try {
-    data = await res.json();
+    return parseStars(await response.json());
   } catch {
     return null;
   }
-  return parseStars(data);
+}
+
+/** Read the last scheduled snapshot from KV, or null before its first success. */
+export async function readStoredStars(env) {
+  const value = await env.PASTES.get(STAR_COUNT_KEY);
+  if (typeof value !== 'string' || !/^\d{1,12}$/.test(value)) return null;
+  const stars = Number(value);
+  return Number.isSafeInteger(stars) ? stars : null;
+}
+
+/** Refresh the KV snapshot; skip the write when GitHub's value is unchanged. */
+export async function updateStarCount(env) {
+  const stars = await fetchStars(env.GITHUB_REPOSITORY);
+  if (stars === null) return { status: 'unavailable' };
+
+  const current = await readStoredStars(env);
+  if (current === stars) return { status: 'unchanged', stars };
+
+  await env.PASTES.put(STAR_COUNT_KEY, String(stars));
+  return { status: current === null ? 'initialized' : 'updated', stars };
 }
 
 /** Pull the count out of a GitHub repo payload; null if it isn't one. */
 export function parseStars(data) {
   if (data === null || typeof data !== 'object' || Array.isArray(data)) return null;
   const n = data.stargazers_count;
-  return Number.isInteger(n) && n >= 0 ? n : null;
+  return Number.isSafeInteger(n) && n >= 0 ? n : null;
 }
