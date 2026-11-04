@@ -6,6 +6,7 @@
 // it stores opaque ciphertext + non-secret metadata and enforces size, rate, and
 // burn-after-read semantics. See SPEC.md §10 for the API contract.
 
+import { recordPasteCreation, readPasteCreationCount } from './lib/statistics.js';
 import { validatePaste, FormatError, MAX_CT_B64 } from '../public/js/format.js';
 import { genId, parseId, genDeleteToken, hashToken, verifyToken } from './lib/ids.js';
 import { ttlSeconds, MAX_BODY, MAX_BURN_RECORD, kvExists, kvPut, kvGet, kvDelete, burnStub } from './lib/store.js';
@@ -13,6 +14,7 @@ import { allowCreate } from './lib/ratelimit.js';
 import { fetchStars, STARS_TTL, STARS_ERROR_TTL } from './lib/stars.js';
 
 export { BurnPaste } from './burn-do.js';
+export { PasteStatistics } from './statistics-do.js';
 
 const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
@@ -39,6 +41,11 @@ export default {
     if (pathname === '/api/paste') {
       if (request.method === 'POST') return createPaste(request, env, ctx);
       return err('Method not allowed', 405, { allow: 'POST' });
+    }
+
+    if (pathname === '/api/statistics') {
+      if (request.method === 'GET') return readPasteStatistics(env);
+      return err('Method not allowed', 405, { allow: 'GET' });
     }
 
     if (pathname === '/api/stars') {
@@ -114,7 +121,7 @@ async function readCappedBody(stream, max) {
   return out;
 }
 
-async function createPaste(request, env, _ctx) {
+async function createPaste(request, env, ctx) {
   // Requiring a real JSON media type forces a CORS preflight for cross-origin
   // browser requests: a hostile page can no longer spend a visitor's creation
   // quota (or create storage objects from their network) with a "simple"
@@ -197,6 +204,10 @@ async function createPaste(request, env, _ctx) {
     if (attempt >= 4) return err('Could not allocate a paste id, please retry.', 500);
   }
 
+  // Count only after the paste Durable Object confirms its successful write.
+  // The statistics path receives neither this paste's ID nor any paste data.
+  recordPasteCreation(ctx, env);
+
   return json({ id, deletetoken: deleteToken }, 201);
 }
 
@@ -259,6 +270,23 @@ async function readStars() {
     return err('Star count unavailable.', 502, { 'cache-control': `public, max-age=${STARS_ERROR_TTL}` });
   }
   return json({ stars }, 200, { 'cache-control': `public, max-age=${STARS_TTL}` });
+}
+
+// Public, read-only aggregate. A small cache allows the sharded counter to
+// remain off the hot path for page views; the deployment baseline is zero.
+async function readPasteStatistics(env) {
+  try {
+    const totalPastes = await readPasteCreationCount(env);
+    return json({
+      totalPastes,
+      baseline: 0,
+      scope: 'successfully created pastes since statistics deployment',
+    }, 200, { 'cache-control': 'public, max-age=30, s-maxage=60' });
+  } catch {
+    return err('Paste statistics unavailable.', 503, {
+      'cache-control': 'no-store',
+    });
+  }
 }
 
 async function deletePaste(id, request, env) {

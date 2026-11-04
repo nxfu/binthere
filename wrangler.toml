@@ -36,6 +36,14 @@ class_name = "BurnPaste"
 tag = "v1"
 new_sqlite_classes = [ "BurnPaste" ]
 
+[[durable_objects.bindings]]
+name = "PASTE_STATS"
+class_name = "PasteStatistics"
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = [ "PasteStatistics" ]
+
 # ── Native rate limiting: paste creation, keyed by client IP ─────────────────
 # Abuse mitigation, not authentication; the code fails open if unavailable.
 [[ratelimits]]
