@@ -188,8 +188,22 @@
                         spellcheck="false"
                     ></textarea>
 
+                    <div class="editor-meta">
+                        <span class="editor-size-hint">Maximum size: 1 MiB of UTF-8 text</span>
+                        <span id="content-size" class="content-size" aria-live="off">0 / 1,048,576 bytes</span>
+                        <span id="content-size-live" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span>
+                    </div>
+
                     <div class="editor-bar">
                         <div class="editor-bar-left">
+                            <label class="format-control" for="content-format">
+                                <span>Format</span>
+                                <select id="content-format" class="input format-select">
+                                    <option value="plaintext" selected>Plain text</option>
+                                    <option value="code">Code</option>
+                                    <option value="markdown">Markdown</option>
+                                </select>
+                            </label>
                             <button
                                 type="button"
                                 class="lock"

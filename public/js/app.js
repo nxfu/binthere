@@ -3,9 +3,10 @@
 // decrypted content via DOM construction only. The fragment key never leaves the
 // browser and is never placed in a network request.
 
-import { encryptPaste, decryptPaste, decryptContent, deriveContentKey, PasswordRequired } from './crypto.js';
+import { encryptPaste, decryptPaste, decryptContent, deriveContentKey, PasswordRequired, MAX_PLAINTEXT } from './crypto.js';
 import { createPaste, fetchPaste, fetchPasteMeta, consumePaste, deletePaste, ApiError } from './api.js';
 import { validateHead, validatePaste, buildAAD, EXPIRE_SECONDS } from './format.js';
+import { utf8 } from './bytes.js';
 import { renderMarkdown } from './markdown.js';
 import { detectLanguage, looksLikeCode, highlightInto } from './highlight.js';
 import { $, showView, toast, copyText, flashCopied, pill } from './ui.js';
@@ -33,12 +34,15 @@ if (route) {
 // ── CREATE ─────────────────────────────────────────────────────────────────
 function initCreate() {
   showView('create');
-  // Format is uniform now — every note is stored as plaintext and any obvious
-  // source code is syntax-highlighted at view time (see renderContent).
-  const fmt = 'plaintext';
+  const editor = $('#editor');
+  const sizeMeter = $('#content-size');
+  const sizeLive = $('#content-size-live');
+  const formatSelect = $('#content-format');
   // The lock toggle only records intent ("this note needs a password"); the
   // password itself is typed in the modal shown when Create link is pressed.
   let pwRequired = false;
+  let isSubmitting = false;
+  let sizeState = 'normal';
 
   const lock = $('#lock');
   if (lock) {
@@ -51,6 +55,34 @@ function initCreate() {
   const createBtn = $('#create');
   const sendTxt = createBtn.querySelector('.send-txt');
   const msg = $('#create-msg');
+
+  function updateContentSize() {
+    const bytes = utf8(editor.value).length;
+    const over = bytes > MAX_PLAINTEXT;
+    const near = !over && bytes >= MAX_PLAINTEXT * 0.9;
+    const nextState = over ? 'over' : near ? 'near' : 'normal';
+    const formattedBytes = bytes.toLocaleString();
+    const formattedMax = MAX_PLAINTEXT.toLocaleString();
+    const detail = over
+      ? ` · ${(bytes - MAX_PLAINTEXT).toLocaleString()} over limit`
+      : near ? ' · Near limit' : '';
+
+    sizeMeter.textContent = `${formattedBytes} / ${formattedMax} bytes${detail}`;
+    sizeMeter.classList.toggle('near-limit', near);
+    sizeMeter.classList.toggle('over-limit', over);
+    editor.setAttribute('aria-invalid', String(over));
+    createBtn.disabled = isSubmitting || over;
+
+    // Announce only when crossing a size state, never on every keystroke.
+    if (nextState !== sizeState) {
+      if (nextState === 'near') sizeLive.textContent = 'The note is approaching the 1 MiB limit.';
+      else if (nextState === 'over') sizeLive.textContent = 'The note exceeds the 1 MiB limit. Creating is disabled.';
+      else sizeLive.textContent = 'The note is within the 1 MiB limit.';
+      sizeState = nextState;
+    }
+  }
+  editor.addEventListener('input', updateContentSize);
+  updateContentSize();
 
   const requestCreate = () => {
     if (createBtn.disabled) return;
@@ -69,6 +101,8 @@ function initCreate() {
   // deliberate product choice, not a missing picker. The wire format (and the
   // CLI/API) supports the full expiry range; the web client does not expose it.
   async function submitPaste(password) {
+    isSubmitting = true;
+    updateContentSize();
     createBtn.disabled = true;
     const label = sendTxt ? sendTxt.textContent : '';
     // Press → the arrow leaves the button (`.sending`), then the composer follows
@@ -90,7 +124,7 @@ function initCreate() {
       const { body, fragment } = await encryptPaste({
         text: $('#editor').value,
         password,
-        fmt,
+        fmt: formatSelect.value,
         bar: true,
         expire: '1day',
       });
@@ -104,12 +138,14 @@ function initCreate() {
       // served its purpose; don't leave it in the (now hidden) textarea. On any
       // failure it is deliberately kept — the user must not lose their note.
       $('#editor').value = '';
+      updateContentSize();
       showSuccess({ id, deletetoken, url, isBurn: true });
     } catch (e) {
       clearTimeout(relabel);
       createBtn.classList.remove('sending'); // the arrow glides back in
       showMsg(msg, friendlyError(e));
-      createBtn.disabled = false;
+      isSubmitting = false;
+      updateContentSize();
       if (sendTxt) sendTxt.textContent = label;
     }
   }

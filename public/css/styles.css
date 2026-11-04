@@ -281,6 +281,14 @@ html.dark .theme-toggle .ico-moon { display: block; }
   padding: 1.15rem 1.25rem .85rem; color: var(--ink); font-family: var(--mono); font-size: .875rem; line-height: 1.7; tab-size: 2; }
 .editor::placeholder { color: var(--ink-3); }
 .editor:focus { outline: none; }
+.editor-meta { display: flex; justify-content: space-between; align-items: baseline; gap: .75rem;
+  padding: 0 .85rem .6rem; color: var(--ink-3); font-family: var(--mono); font-size: .6875rem; line-height: 1.4; }
+.editor-size-hint { min-width: 0; }
+.content-size { flex: none; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.content-size.near-limit { color: var(--accent); }
+.content-size.over-limit { color: var(--seal); font-weight: 700; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 /* iOS Safari zooms into any focused control below 16px — keep controls at 1rem
    on small screens so focusing the composer doesn't jump the viewport. */
 @media (max-width: 768px) {
@@ -290,6 +298,14 @@ html.dark .theme-toggle .ico-moon { display: block; }
 .editor-bar { display: flex; align-items: center; justify-content: space-between; gap: .6rem; flex-wrap: wrap;
   padding: .6rem .7rem; border-top: 1px solid var(--rule); }
 .editor-bar-left { display: inline-flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.format-control { display: inline-flex; align-items: center; gap: .45rem; color: var(--ink-2); font-family: var(--mono); font-size: .6875rem; }
+.format-select { min-height: 36px; padding: .35rem .5rem; }
+@media (max-width: 480px) {
+  .editor-meta { align-items: flex-start; flex-direction: column; gap: .15rem; }
+  .editor-bar { align-items: flex-start; }
+  .editor-bar-left { width: 100%; justify-content: space-between; }
+  .format-select { min-height: 40px; }
+}
 
 /* ── inputs ──────────────────────────────────────────────────────────────── */
 .input { background: var(--sheet); border: 1px solid var(--rule-2); border-radius: 3px; padding: .5rem .7rem;
