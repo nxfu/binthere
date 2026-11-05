@@ -47,5 +47,12 @@ namespace_id = "1001"
   period = 60
 
 # ── Observability ────────────────────────────────────────────────────────────
+[vars]
+GITHUB_REPOSITORY = "nxfu/binthere"
+
+# Refresh the stored GitHub star count once per day at 00:00 UTC.
+[triggers]
+crons = ["0 0 * * *"]
+
 [observability]
 enabled = true
