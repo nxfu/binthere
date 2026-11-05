@@ -11,7 +11,8 @@
 <p align="center">
   <a href="https://binthere.gaury.dev">Try it live</a> ·
   <a href="https://www.npmjs.com/package/binthere">Install the CLI</a> ·
-  <a href="./SPEC.md">Documentation</a> ·
+  <a href="./SPEC.md">Protocol documentation</a> ·
+  <a href="./SELF_HOSTING.md">Self-hosting guide</a> ·
   <a href="https://github.com/nxfu/binthere/issues">Report a bug</a>
 </p>
 
@@ -88,14 +89,14 @@ even under simultaneous clicks — a Durable Object guarantees it), and everyone
 | Zero-knowledge | Encryption and decryption happen only on your device (browser or [CLI](#cli)); the server stores opaque ciphertext and non-secret metadata. |
 | Optional password | Layered on top of the URL key — neither alone can decrypt. |
 | Burn-after-read | Every note is a strict, atomic single-consumer read (Durable Object). The first reader gets it; everyone else gets `410 Gone`. |
-| Auto-expiry | Notes delete themselves after 24 hours. |
+| Auto-expiry | Every new note deletes itself after 24 hours. |
 | Safe rendering | Auto-detected syntax highlighting and a safe Markdown subset (no raw HTML, sanitized links). All rendering is DOM-construction only — never `innerHTML`. |
 | Sharing tools | Copy link, QR code, delete link. |
-| Minimal surface | Strict CSP, self-hosted fonts, no third-party scripts, no analytics, no accounts. |
+| Minimal surface | Strict CSP, self-hosted fonts, no third-party scripts, no visitor-level analytics, no accounts. |
 
 > [!NOTE]
-> The wire format supports the full expiry range (5 minutes–1 year or never) and non-burn
-> pastes; the current UI simply fixes 24 h + one-time view, so older links keep working.
+> New pastes always expire after 24 hours and burn after one read. The reader still supports
+> older v1 links with different expiry or reusable behavior, but new ones cannot be created.
 
 ## How it compares
 
@@ -118,21 +119,26 @@ npm install
 npm run dev      # wrangler dev → http://127.0.0.1:8787
 ```
 
-KV, the Durable Object, and rate limiting are all emulated locally — no Cloudflare account
-needed for development.
+KV and Durable Object storage are emulated locally, so ordinary development needs no
+Cloudflare account. The native rate-limit binding is not emulated locally; requests fail open
+when it is unavailable.
 
 | Command | Description |
 | --- | --- |
-| `npm run dev` | Local dev server at `http://127.0.0.1:8787` |
-| `npm test` | Full Vitest suite: Worker/frontend in the real `workerd` runtime, then the CLI suite in Node |
+| `npm run dev` | Apply `public/site-config.json`, then start `http://127.0.0.1:8787` |
+| `npm test` | Vitest suites: Worker/frontend in `workerd`, DOM rendering, and CLI in Node |
+| `npm run test:e2e` | Playwright browser tests for CSP, create/reveal/burn, password retry, and download |
 | `npm run test:cli` | Just the CLI suite (`cli/`, plain Node environment) |
 | `npm run test:watch` | Tests in watch mode |
 | `npm run test:coverage` | Tests with coverage report |
 | `npm run lint` | ESLint 9 (flat config) |
 | `npm run kv:create` | Create the `PASTES` KV namespace (+ preview) |
-| `npm run deploy` | Deploy to Cloudflare |
+| `npm run configure-site` | Apply your site identity to crawler metadata and `security.txt` |
+| `npm run deploy` | Apply site identity, then deploy to Cloudflare |
 
-CI runs lint, a byte-for-byte test-vector diff, and the full suite.
+CI runs lint, a byte-for-byte test-vector diff, the Vitest suites, and the Playwright browser
+flows.
+To run the browser suite locally, install Chromium once with `npx playwright install chromium`.
 
 ## CLI
 
@@ -154,49 +160,19 @@ non-essential motion. Globally installed copies can update themselves with `bint
 
 ## Self-hosting
 
-You can run your own binthere — nothing about the design ties it to the public instance, and
-there is no managed service in the loop. Because it's a single Cloudflare Worker (Static
-Assets + KV + a Durable Object), it's **optimized for Cloudflare Workers** and one of its
-biggest advantages is cost: a complete instance fits inside
-[Cloudflare's free tier](https://developers.cloudflare.com/workers/platform/pricing/), so you
-can host binthere **completely free**.
+You can run an independent instance on your Cloudflare account. The repository includes a
+manual setup with fresh KV namespaces and a SQLite-backed Durable Object; no maintainer
+resource IDs are required. Cloudflare Free plan quotas may cover low-traffic personal use,
+but usage limits, plan rules, and prices can change. Usage above included allowances may incur
+charges or be limited. Review [Cloudflare Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/)
+before deploying.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/nxfu/binthere)
 
-The button above clones the repo and provisions everything declared in
-[`wrangler.toml`](./wrangler.toml) — the static assets, the `PASTES` KV binding, the
-`BurnPaste` Durable Object + migration, and the `CREATE_RL` rate limiter — on your own
-Cloudflare account. The importer creates fresh resources and rewrites the resource ids in
-*your* copy of the config; the checked-in ids belong to the origin deployment and are
-identifiers, not secrets.
-
-If the one-click path ever misbehaves, the manual route below is the guaranteed fallback:
-
-```bash
-npm run kv:create        # create your own PASTES KV namespace (+ preview)
-# paste the printed id / preview_id into wrangler.toml
-npm run deploy           # creates the Worker, Durable Object, and rate limiter
-```
-
-<details>
-<summary>Self-hosting checklist</summary>
-
-- Replace the KV `id` / `preview_id` in `wrangler.toml` with your own (a pristine template is
-  in [`wrangler.toml.example`](./wrangler.toml.example)).
-- Update the hardcoded canonical URLs: `og:url` / `og:image` in `public/index.html` and
-  `Canonical` in `public/.well-known/security.txt` point at `binthere.gaury.dev`; the
-  footer and `security.txt` `Policy` point at `github.com/nxfu/binthere`.
-- The link-preview card `public/opengraph.png` also has that domain printed on it. Edit
-  [`tools/opengraph.html`](./tools/opengraph.html) and re-render with `node tools/render-og.mjs`
-  (needs a local Chrome/Chromium; pass `--browser <path>` or set `$CHROME` if it isn't found).
-- `npm run dev` works with placeholder KV ids — KV is emulated locally.
-- **Cost note on `never` expiry:** the official clients always create 24-hour one-time
-  notes, but the wire format (and the API) accepts `expire: "never"`. Such a paste is
-  stored with no KV TTL and no Durable Object alarm — an unread burn note kept forever
-  carries a small perpetual cost under SQLite-backed DO storage billing. If you expose
-  `never` to third-party clients, decide whether to cap it or accept the standing cost.
-
-</details>
+For the manual, copy-ready setup, custom domain steps, cost notes, and verification checklist,
+see the [self-hosting guide](./SELF_HOSTING.md). The optional one-click button provisions the
+resources described by the deployment configuration; the manual guide explains how to create
+and bind your own resources if you prefer to manage setup yourself.
 
 ## Architecture
 
@@ -204,7 +180,7 @@ npm run deploy           # creates the Worker, Durable Object, and rate limiter
 | --- | --- |
 | Static Assets (`public/`) | SPA frontend, served directly by the Worker |
 | Worker (`src/index.js`) | `/api/*` paste API — stores ciphertext, enforces size/rate/burn |
-| KV (`PASTES`) | Normal pastes, with native TTL expiry |
+| KV (`PASTES`) | Read/delete compatibility for older v1 reusable pastes |
 | Durable Object (`BurnPaste`) | Burn-after-read pastes, atomic single-consumer |
 | Rate Limiting binding | Abuse mitigation on paste creation (fail-open) |
 
@@ -219,14 +195,20 @@ the key fragment never appears in any request. Full details in [`SPEC.md`](./SPE
 
 | Method & path | Purpose | Success | Errors |
 | --- | --- | --- | --- |
-| `POST /api/paste` | Create a paste (format v1 JSON) | `201` | `400` invalid · `413` too large · `429` rate-limited |
-| `GET /api/paste/:id` | Fetch a paste (consumes a burn) | `200` | `404` missing/expired · `410` burned |
+| `POST /api/paste` | Create a one-time, 24-hour paste (format v1 JSON) | `201` | `400` invalid/lifecycle unsupported · `413` too large · `429` rate-limited |
+| `GET /api/paste/:id` | Fetch a legacy paste or peek a one-time note | `200` | `404` missing/expired · `410` burned |
 | `GET /api/paste/:id?meta=1` | Peek a burn head without consuming | `200` | `404` missing · `410` burned/expired |
 | `DELETE /api/paste/:id` | Delete, with `X-Delete-Token` header | `200` | `400` missing token · `403` wrong token · `404` missing |
-| `GET /api/stars` | Repo star count for the topbar badge (not part of the paste protocol) | `200` | `502` GitHub unavailable |
+| `GET /api/stars` | Stored repo star count for the topbar badge (not part of the paste protocol) | `200` | `503` snapshot unavailable or not initialized |
+| `GET /api/statistics` | Aggregate successful paste creations since statistics deployment | `200` `{ "totalPastes": n, "baseline": 0, "scope": "..." }` | `503` statistics unavailable |
 
 The delete token travels in a header — never in the URL — so it cannot land in request logs;
 the server stores and compares only its SHA-256.
+
+The paste counter is initialized to zero and counts from deployment onward; older consumed,
+deleted, or expired pastes cannot be recovered from storage. Counter writes contain only an
+anonymous increment and are best-effort, so a statistics storage failure never fails paste
+creation. The endpoint is read-only and returns the same aggregate to every visitor.
 
 </details>
 
@@ -240,7 +222,7 @@ public/            static frontend (CSP-clean; served by Workers Static Assets)
 src/
   index.js         Worker: /api/paste routing + asset fallback
   burn-do.js       BurnPaste Durable Object (atomic burn-after-read)
-  lib/             ids, storage routing, rate-limit wrapper, GitHub star proxy
+  lib/             ids, storage routing, rate-limit wrapper, GitHub star snapshot
 test/              vitest suites (run in workerd) + genvectors.mjs (vector regenerator)
                    + vectors.expected.txt (pinned vector output, diffed in CI)
 tools/             verify-vectors.py — independent Python cross-check of the frozen vectors
@@ -278,11 +260,11 @@ Most of these are deliberate scope choices, not bugs. Know them before relying o
   ([`SPEC.md`](./SPEC.md) §8 documents the trade-off).
 - **Password KDF is PBKDF2-SHA256** (310k iterations), not a memory-hard KDF. Argon2id is on
   the roadmap.
-- **The UI fixes expiry at 24 h and one-time view.** The wire format supports more; the
-  controls are just hidden.
+- **New notes have a fixed lifecycle:** one read or 24 hours. Existing v1 links with legacy
+  lifecycle settings remain readable.
 - **English only.**
 - **The rate limiter fails open** — it is abuse mitigation, not access control.
-- **Canonical URLs are hardcoded** to the origin deployment; update them when self-hosting
+- **The OpenGraph card artwork** includes the origin domain; re-render it when self-hosting
   (see [Self-hosting](#self-hosting)).
 
 </details>
@@ -353,7 +335,7 @@ Roughly in priority order:
       [`binthere`](https://www.npmjs.com/package/binthere) (see [CLI](#cli))
 - [ ] **Argon2id** as a versioned password-KDF option alongside PBKDF2 (spec-first: vectors before code)
 - [ ] **File attachments** — encrypted binary blobs with size limits (likely R2 for large files)
-- [ ] **Headless-browser CSP + render test** (Playwright) in CI, asserting zero CSP violations
+- [x] **Headless-browser CSP + render test** (Playwright) in CI, asserting zero CSP violations
       across the create/view/burn flows
 
 ## Security

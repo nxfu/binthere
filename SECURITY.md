@@ -65,6 +65,14 @@ The **delete token is deliberately kept out of this metadata**: it is sent in th
 URLs; the server stores and compares only its SHA-256 (`SPEC.md` §7, §10). The decryption
 secret `F` never appears in **any** request — URL, header, or body.
 
+The public `GET /api/statistics` endpoint exposes only an aggregate count of successful paste
+creations since its documented zero baseline. Its independent counter update receives no paste
+ID, content, key, token, IP address, or request record, and it does not create a per-visitor or
+per-paste history. It is not a lifetime count because past consumed, deleted, and expired
+records cannot be reconstructed. This aggregate does not make the service anonymous: ordinary
+Worker and Cloudflare request metadata above remains observable under their operational
+policies.
+
 If you need anonymity or traffic-analysis resistance, use additional tooling (e.g. Tor); it is
 outside binthere's scope.
 
@@ -84,8 +92,9 @@ key/plaintext compromise. binthere treats XSS as a top-severity class and defend
   document and every asset the browser executes; the JSON `/api/*` responses (which the
   browser never renders as a document) instead carry `cache-control: no-store` and
   `x-content-type-options: nosniff` (`src/index.js`).
-- **No third-party JavaScript, no CDN scripts, no analytics.** All scripts, styles, and fonts
-  are first-party and self-hosted.
+- **No third-party JavaScript or CDN scripts.** All scripts, styles, and fonts are first-party
+  and self-hosted. The only usage metric is the separate anonymous aggregate paste-creation
+  counter described in §3; there is no visitor-level analytics or activity history.
 - **Decrypted content is rendered by DOM construction only** (`document.createElement` +
   `textContent`). Decrypted user content is **never** assigned to `innerHTML`.
 - **Markdown supports a safe subset with no raw HTML.** Link `href`s are restricted to an
@@ -139,7 +148,21 @@ client worth knowing:
 Paste creation is rate-limited using Cloudflare's native Workers Rate Limiting binding, keyed
 by client IP. This is **abuse mitigation, not authentication**, and is **fail-open**: if the
 limiter is unavailable, requests are allowed rather than blocked. Limits are documented in
-`SPEC.md`/`wrangler.toml`.
+`SPEC.md`/`wrangler.toml`. Cloudflare describes these counters as location-local and
+approximate. The IP is used as the rate-limit key; binthere does not create a profile or retain
+a history of activity for that IP. `wrangler dev` does not emulate the binding.
+
+### Self-hosted deployment
+
+Every self-hoster controls the code and account serving their instance. Visitors must trust the
+operator's deployed frontend code just as they trust any web-delivered cryptographic client.
+Use your own KV namespace IDs and keep deployment credentials private. The IDs in the tracked
+origin configuration are resource identifiers, not secrets; `wrangler.toml.example` is the
+starting point for an independent deployment. The `BurnPaste` Durable Object namespace is
+created from the SQLite migration on first deploy. Review
+[`SELF_HOSTING.md`](./SELF_HOSTING.md) for provisioning and billing guidance. Cloudflare usage
+limits and costs depend on current plan terms and traffic; self-hosting is not guaranteed to
+be free.
 
 ### API surface hardening
 

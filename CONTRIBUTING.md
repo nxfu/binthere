@@ -29,14 +29,20 @@ Everything else is negotiable. These are not:
 Requires Node.js ≥ 20 (`.nvmrc` pins 22) and npm. From the `binthere/` directory:
 
 ```bash
-npm install
-npm run dev      # wrangler dev → http://127.0.0.1:8787 (KV + DO + rate limit emulated locally)
-npm test         # vitest: workerd suites, then the CLI suite (cli/, plain Node)
+npm ci
+npm run dev      # wrangler dev → http://127.0.0.1:8787 (local KV + DO storage)
+npm test         # Vitest: workerd, DOM-rendering, and CLI suites
 npm run test:cli # just the CLI suite
 npm run test:watch   # workerd suites, watch mode
 npm run test:coverage  # istanbul coverage (v8 provider can't run inside workerd)
 npm run lint     # ESLint 9 flat config (eslint.config.js)
+npm run test:e2e # Playwright browser flows, when the browser-test package is installed
+npx playwright install chromium # one-time browser install for local e2e runs
 ```
+
+Local Wrangler emulates KV and Durable Object storage. The native rate-limit binding is not
+emulated, and the Worker fails open if it is unavailable. Keep ordinary development local;
+`wrangler dev --remote` can connect to real Cloudflare resources.
 
 There is **no frontend build step**: `public/js/*.js` are native ES modules served as-is. The
 Worker under `src/` is bundled by wrangler. In `wrangler dev`, `request.cf` is absent, so
@@ -78,8 +84,8 @@ Beyond the two hard rules, preserve these (see [`SECURITY.md`](./SECURITY.md) an
 ## Tests
 
 Every PR must keep `npm run lint` and `npm test` green (CI enforces both, plus a byte-for-byte
-diff of `node test/genvectors.mjs` output against `test/vectors.expected.txt`). The main suites
-(all run in `workerd`):
+diff of `node test/genvectors.mjs` output against `test/vectors.expected.txt`). The root
+`test/*.test.js` suites run in `workerd`:
 
 | Suite | Covers |
 |---|---|
@@ -90,16 +96,33 @@ diff of `node test/genvectors.mjs` output against `test/vectors.expected.txt`). 
 | `test/ids.test.js` | ID and delete-token generation |
 | `test/burn.test.js` | Backend API + atomic single-consumer burn concurrency + password peek |
 
-The CLI package has its own Node-environment suites under `cli/test/` (frozen vectors re-run in
-plain Node, URL parsing, mocked-API round trips, and a vendor-drift byte-compare that fails if
+DOM-mount suites under `test-dom/` use happy-dom, not `workerd`. The CLI package has its own
+Node-environment suites under `cli/test/` (frozen vectors re-run in plain Node, URL parsing,
+mocked-API round trips, and a vendor-drift byte-compare that fails if
 `cli/vendor/` diverges from `public/js/` — re-align with `node cli/scripts/sync-shared.mjs`).
 
 Add or update tests alongside behavior changes. New rendering paths and any crypto/format change
 **require** test coverage, not just passing existing suites.
 
-**Coverage honesty:** the DOM-driven frontend (`public/js/{app,ui,api,theme,theme-init}.js`) has
-no automated coverage — there is no browser test harness — so changes there need a manual pass
-in `wrangler dev`. Backend, crypto, and the shared pure modules are covered by the suites above.
+### Browser coverage and manual checks
+
+The Playwright suite in `browser-tests/flows.spec.js` runs the real app in Chromium against a
+local Wrangler Worker. It currently covers a create/reveal/burn/download flow under the
+production CSP, a wrong-password retry followed by a successful consume, and checks that the
+tested flows raise no CSP violations. It is a small smoke suite, not exhaustive browser
+coverage.
+
+The browser suite does not currently verify every API failure status, lost or timed-out consume
+responses, delete failures, keyboard-only navigation, reduced-motion behavior, or mobile
+layouts. Run `npm run dev` and manually exercise changed UI paths at desktop and narrow/mobile
+viewport sizes. For changes involving destructive consume requests, specifically check the
+network failure states and confirm the UI never claims a paste is safe to retry when the
+outcome is uncertain. For protocol or storage changes, rely on the focused Vitest and CLI
+tests as well as the browser smoke suite; a browser pass alone is not enough.
+
+The local browser suite does not verify production DNS, TLS, Cloudflare resource bindings,
+account quotas, or billing. Those checks belong to the deployment owner; see
+[`SELF_HOSTING.md`](./SELF_HOSTING.md).
 
 > [!NOTE]
 > **Windows:** after the suite passes you may see `vitest-pool-worker: Unable to remove
