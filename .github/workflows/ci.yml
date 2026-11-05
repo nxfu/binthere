@@ -1,8 +1,7 @@
-# CI for binthere — runs the full vitest suite (crypto vectors, format, ids,
-# markdown XSS, highlight, burn concurrency) in the real workerd runtime via
-# @cloudflare/vitest-pool-workers, the DOM-mount suites (happy-dom), then the
-# CLI suite (cli/) in plain Node — including the vendor-drift byte-compare
-# against public/js/. Runs on every push to main and on every PR.
+# CI for binthere — runs the Vitest suite (crypto vectors, format, ids, markdown
+# XSS, highlight, burn concurrency) in the real workerd runtime, DOM-mount tests,
+# Chromium E2E flows, and CLI tests in plain Node — including the vendor-drift
+# byte-compare against public/js/. Runs on every push to main and on every PR.
 
 name: CI
 
@@ -31,6 +30,8 @@ jobs:
       # (80% statements / 70% branches) are enforced; then the DOM and CLI projects.
       - run: npm run test:coverage
       - run: npm run test:dom
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
       - run: npm run test:cli
 
   # The CLI (cli/) is a cross-platform npm package with engines.node >= 20:

@@ -45,6 +45,11 @@ export default [
     languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },
 
+  {
+    files: ['browser-tests/**/*.js', 'playwright.config.js'],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+  },
+
   // CLI package (Node ≥ 20: fetch/WebCrypto/CompressionStream are globals).
   // Its tests import vitest APIs explicitly, so plain Node globals suffice.
   {
