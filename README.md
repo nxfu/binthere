@@ -39,8 +39,8 @@ test suite, with the ~700 KB of jQuery/Bootstrap/zlib-WASM stripped out. It runs
 Cloudflare Worker (Static Assets + KV + a Durable Object), so hosting is cheap and there is no
 server to maintain.
 
-- **No accounts, no tracking.** Paste, share, done. There is nothing to sign up for and no
-  analytics watching you do it.
+- **No accounts or user tracking.** binthere keeps only an anonymous aggregate count of
+  successfully created pastes. It stores no visitor or paste identifiers for this count.
 - **Nobody can recover a lost link.** Not even the operator — there is no key to look up and
   no index of pastes. The link is the only copy of the key, by design.
 - **Honest limits.** The server still sees IPs, timings, and ciphertext sizes (it's private,
