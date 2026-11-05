@@ -5,10 +5,12 @@
 // into UI state (e.g. a "/p/undefined#…" share link).
 
 export class ApiError extends Error {
-  constructor(message, status) {
+  constructor(message, status, consumeState = null, responseStatus = null) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.consumeState = consumeState;
+    this.responseStatus = responseStatus;
   }
 }
 
@@ -28,9 +30,14 @@ function requireObject(data) {
   return data;
 }
 
-async function throwHttpError(res, fallback) {
+async function throwHttpError(res, fallback, consumeState = null) {
   const data = await readJson(res);
-  throw new ApiError((isPlainObject(data) && typeof data.error === 'string' && data.error) || fallback, res.status);
+  throw new ApiError(
+    (isPlainObject(data) && typeof data.error === 'string' && data.error) || fallback,
+    res.status,
+    consumeState,
+    res.status,
+  );
 }
 
 /** Create a paste. `body` is the format-v1 object. Returns { id, deletetoken }. */
@@ -74,13 +81,36 @@ export async function fetchPasteMeta(id) {
  * reachable by an ambient cross-origin GET.
  */
 export async function consumePaste(id) {
-  const res = await fetch(`/api/paste/${encodeURIComponent(id)}/consume`, {
-    method: 'POST',
-    headers: { 'x-burn-intent': 'consume' },
-    cache: 'no-store',
-  });
-  if (!res.ok) await throwHttpError(res, 'Not found.');
-  return requireObject(await readJson(res));
+  let url;
+  try {
+    url = `/api/paste/${encodeURIComponent(id)}/consume`;
+  } catch {
+    throw new ApiError('Could not prepare the consume request.', 0, 'not-sent');
+  }
+
+  let res;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'x-burn-intent': 'consume' },
+      cache: 'no-store',
+    });
+  } catch {
+    // Once fetch has been invoked, a rejected promise cannot establish whether
+    // the Worker received and consumed the paste.
+    throw new ApiError('No response was received for the consume request.', 0, 'unknown');
+  }
+
+  if (!res.ok) {
+    const consumeState = res.status >= 500 ? 'unknown' : 'response';
+    await throwHttpError(res, 'Consume request failed.', consumeState);
+  }
+
+  const data = await readJson(res);
+  if (!isPlainObject(data)) {
+    throw new ApiError('Malformed consume response.', 502, 'unknown', res.status);
+  }
+  return data;
 }
 
 /**
