@@ -5,10 +5,12 @@
 // (the browser fetches same-origin) and an injectable fetch for tests. The
 // `cache: 'no-store'` hint is dropped — Node's fetch has no HTTP cache.
 export class ApiError extends Error {
-  constructor(message, status) {
+  constructor(message, status, consumeState = null, responseStatus = null) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.consumeState = consumeState;
+    this.responseStatus = responseStatus;
   }
 }
 
@@ -91,16 +93,36 @@ export class Client {
    * ambient GET, so link scanners/prefetchers can't destroy a note.
    */
   async consumePaste(id) {
-    const res = await this.fetch(`${this.server}/api/paste/${encodeURIComponent(id)}/consume`, {
-      method: 'POST',
-      headers: { 'x-burn-intent': 'consume' },
-    });
+    let url;
+    try {
+      url = `${this.server}/api/paste/${encodeURIComponent(id)}/consume`;
+    } catch {
+      throw new ApiError('Could not prepare the consume request.', 0, 'not-sent');
+    }
+
+    let res;
+    try {
+      res = await this.fetch(url, {
+        method: 'POST',
+        headers: { 'x-burn-intent': 'consume' },
+      });
+    } catch (e) {
+      throw new ApiError(
+        e instanceof Error ? e.message : 'No response was received.',
+        e?.status ?? 0,
+        'unknown',
+        e?.responseStatus ?? null,
+      );
+    }
     if (!res.ok) {
       const data = await readJson(res);
-      throw new ApiError(serverError(data, 'Not found.'), res.status);
+      const consumeState = res.status >= 500 ? 'unknown' : 'response';
+      throw new ApiError(serverError(data, 'Consume request failed.'), res.status, consumeState, res.status);
     }
     const data = await readJson(res);
-    if (!data) throw new ApiError('Malformed response.', 502);
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      throw new ApiError('Malformed consume response.', 502, 'unknown', res.status);
+    }
     return data;
   }
 

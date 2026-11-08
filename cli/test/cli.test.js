@@ -341,6 +341,72 @@ describe('burn-after-read flow (SPEC.md §8 ordering)', () => {
     expect(c.text.err()).toMatch(/burned or.*expired|gone/i);
   });
 
+  it.each([
+    [404, /paste not found/i],
+    [410, /expired or already consumed/i],
+    [429, /rate limited/i],
+  ])('reports consume HTTP %i without labeling it as an expired paste', async (status, message) => {
+    const server = makeServer();
+    const url = await createBurn(server);
+    const a = makeIo({ server });
+    const originalFetch = a.io.fetch;
+    let consumeCalls = 0;
+    a.io.fetch = async (rawUrl, init) => {
+      if (new URL(rawUrl).pathname.endsWith('/consume')) {
+        consumeCalls++;
+        return new Response(JSON.stringify({ error: 'failed' }), { status });
+      }
+      return originalFetch(rawUrl, init);
+    };
+
+    expect(await run(['get', '--yes', url], a.io)).toBe(1);
+    expect(a.text.err()).toMatch(message);
+    expect(consumeCalls).toBe(1);
+  });
+
+  it('warns that a 5xx consume result is ambiguous and does not retry', async () => {
+    const server = makeServer();
+    const url = await createBurn(server);
+    const a = makeIo({ server });
+    const originalFetch = a.io.fetch;
+    let consumeCalls = 0;
+    a.io.fetch = async (rawUrl, init) => {
+      if (new URL(rawUrl).pathname.endsWith('/consume')) {
+        consumeCalls++;
+        return new Response(JSON.stringify({ error: 'failed' }), { status: 500 });
+      }
+      return originalFetch(rawUrl, init);
+    };
+
+    expect(await run(['get', '--yes', url], a.io)).toBe(1);
+    expect(a.text.err()).toMatch(/server returned HTTP 500/i);
+    expect(a.text.err()).toMatch(/could not confirm whether the paste was consumed/i);
+    expect(a.text.err()).toMatch(/retrying may return an already-consumed response/i);
+    expect(a.text.err()).not.toMatch(/expired|already consumed \(HTTP 410\)/i);
+    expect(consumeCalls).toBe(1);
+  });
+
+  it('warns about consumption uncertainty when the consume response is lost', async () => {
+    const server = makeServer();
+    const url = await createBurn(server);
+    const a = makeIo({ server });
+    const originalFetch = a.io.fetch;
+    let consumeCalls = 0;
+    a.io.fetch = async (rawUrl, init) => {
+      if (new URL(rawUrl).pathname.endsWith('/consume')) {
+        consumeCalls++;
+        throw new TypeError('connection reset');
+      }
+      return originalFetch(rawUrl, init);
+    };
+
+    expect(await run(['get', '--yes', url], a.io)).toBe(1);
+    expect(a.text.err()).toMatch(/no response was received/i);
+    expect(a.text.err()).toMatch(/could not confirm whether the paste was consumed/i);
+    expect(a.text.err()).toMatch(/retrying may return an already-consumed response/i);
+    expect(consumeCalls).toBe(1);
+  });
+
   it('a wrong password NEVER consumes the paste', async () => {
     const server = makeServer();
     const url = await createBurn(server, { password: 'pw' });

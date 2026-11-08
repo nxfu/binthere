@@ -12,7 +12,7 @@ import { cmdCreate } from './commands/create.js';
 import { cmdDelete } from './commands/delete.js';
 import { cmdGet } from './commands/get.js';
 import { cmdUpdate, cmdVersion } from './commands/update.js';
-import { AbortError, UsageError } from './errors.js';
+import { AbortError, ConsumeError, UsageError } from './errors.js';
 import { confirm, promptHidden, promptLine, promptMultiline } from './prompt.js';
 import { copyToClipboard } from './tui/clipboard.js';
 import { readKey, releaseKeys } from './tui/keys.js';
@@ -184,6 +184,7 @@ export async function run(argv, io = defaultIo()) {
     };
     if (e instanceof AbortError) return fail(`binthere: ${e.message}`, 130);
     if (e instanceof UsageError) return fail(`binthere: ${e.message}`, 2);
+    if (e instanceof ConsumeError) return fail(`binthere: ${e.message}`, 1);
     if (e instanceof ApiError) return fail(`binthere: ${apiMessage(e)}`, 1);
     if (e instanceof PasswordRequired) {
       return fail('binthere: this paste requires a password (use --password-env)', 1);
