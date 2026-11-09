@@ -66,23 +66,23 @@ describe('frozen test vectors', () => {
 });
 
 describe('encrypt/decrypt round-trip', () => {
-  it('no-password round-trips and emits a valid format-v1 body', async () => {
+  it('no-password round-trips and emits the supported lifecycle', async () => {
     const text = 'hello, binthere';
     const { body, fragment } = await encryptPaste({ text });
     expect(() => validatePaste(body)).not.toThrow();
     expect(body.adata.kdf).toBe('hkdf');
+    expect(body.adata.bar).toBe(true);
+    expect(body.meta.expire).toBe('1day');
     const out = await decryptPaste({ paste: body, fragment });
     expect(out.text).toBe(text);
   });
 
-  it('round-trips every format and the burn flag', async () => {
+  it('round-trips every content format as a one-time note', async () => {
     for (const fmt of ['plaintext', 'code', 'markdown']) {
-      for (const bar of [false, true]) {
-        const text = `body ${fmt} ${bar}`;
-        const { body, fragment } = await encryptPaste({ text, fmt, bar });
-        const out = await decryptPaste({ paste: body, fragment });
-        expect(out).toEqual({ text, fmt, bar });
-      }
+      const text = `body ${fmt}`;
+      const { body, fragment } = await encryptPaste({ text, fmt });
+      const out = await decryptPaste({ paste: body, fragment });
+      expect(out).toEqual({ text, fmt, bar: true });
     }
   });
 
@@ -133,11 +133,11 @@ describe('deriveContentKey / decryptContent split (verify before consume)', () =
 
 describe('authentication / tamper (AAD + ciphertext binding)', () => {
   async function make() {
-    return encryptPaste({ text: 'authentic', fmt: 'plaintext', bar: false });
+    return encryptPaste({ text: 'authentic', fmt: 'plaintext' });
   }
   it('flipping an authenticated adata field breaks decryption', async () => {
     for (const mutate of [
-      (b) => { b.adata.bar = true; },
+      (b) => { b.adata.bar = false; },
       (b) => { b.adata.fmt = 'markdown'; },
       (b) => { b.adata.comp = b.adata.comp === 'gzip' ? 'none' : 'gzip'; },
     ]) {

@@ -9,7 +9,7 @@
 // confirm → consume) lives in one place only.
 import { encryptPaste, MAX_PLAINTEXT } from '../vendor/crypto.js';
 import { Client } from './client.js';
-import { EXPIRE, LIFECYCLE_NOTE } from './commands/create.js';
+import { LIFECYCLE_NOTE } from './commands/create.js';
 import { cmdDelete } from './commands/delete.js';
 import { cmdGet } from './commands/get.js';
 import { UsageError } from './errors.js';
@@ -130,7 +130,7 @@ async function tuiCreate(io, theme, server) {
     io, theme, 'encrypting locally and uploading ciphertext…',
     async () => {
       const enc = await encryptPaste({
-        text, password, fmt: 'plaintext', bar: true, expire: EXPIRE,
+        text, password, fmt: 'plaintext',
       });
       const client = new Client(server, io.fetch);
       const created = await client.createPaste(enc.body);
