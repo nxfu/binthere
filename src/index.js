@@ -11,7 +11,7 @@ import { validatePaste, FormatError, MAX_CT_B64 } from '../public/js/format.js';
 import { genId, parseId, genDeleteToken, hashToken, verifyToken } from './lib/ids.js';
 import { ttlSeconds, MAX_BODY, MAX_BURN_RECORD, kvExists, kvPut, kvGet, kvDelete, burnStub } from './lib/store.js';
 import { allowCreate } from './lib/ratelimit.js';
-import { fetchStars, STARS_TTL, STARS_ERROR_TTL } from './lib/stars.js';
+import { readStoredStars, updateStarCount, STARS_TTL, STARS_ERROR_TTL } from './lib/stars.js';
 
 export { BurnPaste } from './burn-do.js';
 
@@ -28,6 +28,10 @@ const json = (obj, status = 200, extraHeaders) => new Response(JSON.stringify(ob
 const err = (message, status, extraHeaders) => json({ error: message }, status, extraHeaders);
 
 export default {
+  async scheduled(_controller, env, ctx) {
+    ctx.waitUntil(updateStarCount(env));
+  },
+
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const { pathname } = url;
@@ -48,7 +52,7 @@ export default {
     }
 
     if (pathname === '/api/stars') {
-      if (request.method === 'GET') return readStars();
+      if (request.method === 'GET') return readStars(env);
       return err('Method not allowed', 405, { allow: 'GET' });
     }
 
@@ -259,14 +263,19 @@ async function consumePaste(id, request, env) {
   return err('This document was single-use and has already been read, or has expired.', 410);
 }
 
-// The repository's star count for the topbar badge. Unlike every other route
-// this response is public, identical for all visitors, and cheap to be slightly
-// stale — so it is cached rather than no-store'd, which is also what keeps a
-// flood of page loads from turning into a flood of GitHub requests.
-async function readStars() {
-  const stars = await fetchStars();
+// The repository's daily star-count snapshot for the topbar badge. Visitors
+// only read KV; the scheduled handler is the sole GitHub API caller.
+async function readStars(env) {
+  let stars;
+  try {
+    stars = await readStoredStars(env);
+  } catch {
+    return err('Star count unavailable.', 503, { 'cache-control': `public, max-age=${STARS_ERROR_TTL}` });
+  }
   if (stars === null) {
-    return err('Star count unavailable.', 502, { 'cache-control': `public, max-age=${STARS_ERROR_TTL}` });
+    return err('Star count has not been initialized yet.', 503, {
+      'cache-control': `public, max-age=${STARS_ERROR_TTL}`,
+    });
   }
   return json({ stars }, 200, { 'cache-control': `public, max-age=${STARS_TTL}` });
 }
