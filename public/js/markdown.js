@@ -74,6 +74,8 @@ function parseInline(str) {
 // ── block parsing ────────────────────────────────────────────────────────────
 
 const RE_HEADING = /^(#{1,6})\s+(.*)$/;
+// Discord-style subtext: the marker must start the line and have a space after #.
+const RE_SUBTEXT = /^-# +(.*)$/;
 const RE_HR = /^\s*([-*_])(?:\s*\1){2,}\s*$/;
 const RE_ULI = /^\s*[-*+]\s+(.*)$/;
 const RE_OLI = /^\s*\d+\.\s+(.*)$/;
@@ -125,6 +127,14 @@ export function parse(md) {
     }
 
     if (line.trim() === '') { flushPara(); i++; continue; }
+
+    const subtext = RE_SUBTEXT.exec(line);
+    if (subtext) {
+      flushPara();
+      blocks.push({ type: 'subtext', inline: parseInline(subtext[1]) });
+      i++;
+      continue;
+    }
 
     if (RE_HR.test(line)) { flushPara(); blocks.push({ type: 'hr' }); i++; continue; }
 
@@ -201,8 +211,9 @@ export function renderMarkdown(container, md) {
       const el = document.createElement('h' + b.level);
       mountInline(el, b.inline);
       container.appendChild(el);
-    } else if (b.type === 'paragraph') {
+    } else if (b.type === 'paragraph' || b.type === 'subtext') {
       const el = document.createElement('p');
+      if (b.type === 'subtext') el.className = 'subtext';
       mountInline(el, b.inline);
       container.appendChild(el);
     } else if (b.type === 'blockquote') {

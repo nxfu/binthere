@@ -38,6 +38,17 @@ function assertInert(root) {
 }
 
 describe('renderMarkdown — mounted tree is inert', () => {
+  it('renders safe subtext with emphasis and sanitized links while escaping HTML', () => {
+    const div = document.createElement('div');
+    renderMarkdown(div, '-# **small** _note_ [safe](https://example.com) [bad](javascript:alert(1)) <img src=x onerror=alert(1)>');
+    const subtext = div.querySelector('p.subtext');
+    expect(subtext.querySelector('strong').textContent).toBe('small');
+    expect(subtext.querySelector('em').textContent).toBe('note');
+    expect(subtext.querySelectorAll('a')).toHaveLength(1);
+    expect(subtext.textContent).toContain('<img src=x onerror=alert(1)>');
+    assertInert(div);
+  });
+
   const hostile = [
     '<script>alert(1)</script>',
     '<img src=x onerror=alert(1)>',

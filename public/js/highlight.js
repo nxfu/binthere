@@ -41,7 +41,7 @@ export function detectLanguage(text) {
   }
   if (/<!doctype\s+html|<html\b|<head\b|<body\b|<\/?(?:div|span|p|a|h[1-6]|script|style|main|section|button|input|ul|li|table|form|header|footer)\b/i.test(t)) return 'html';
   if (/(^|\n)\s*[.#]?[\w-]+(?:\s*,\s*[.#]?[\w-]+)*\s*\{\s*[-\w]+\s*:/m.test(t)) return 'css';
-  if (/^(?:#{1,6}\s|>\s|[-*+]\s|\d+\.\s|```)/m.test(t)) return 'markdown';
+  if (/^(?:#{1,6}\s|-# +|>\s|[-*+]\s|\d+\.\s|```)/m.test(t)) return 'markdown';
   if (/\b(?:def|elif|self|lambda|print)\b|^\s*from\s+\w+\s+import\s/m.test(t) && /:|\b(?:True|False|None)\b/.test(t)) return 'py';
   if (/\b(?:function|const|let|var|=>|export|console\.log|document\.)\b/.test(t) && /[;{}()=]/.test(t)) return 'js';
   if (looksLikeCode(t)) return 'js';

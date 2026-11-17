@@ -469,6 +469,7 @@ html.dark .theme-toggle .ico-moon { display: block; }
 /* Notes keep explicit line breaks within paragraphs and quotes. Blank lines
    remain paragraph boundaries; code blocks keep their own whitespace rules. */
 .md p, .md blockquote { white-space: pre-line; }
+.md p.subtext { font-size: .8em; color: var(--ink-3); margin: .25rem 0; }
 .md code { font-family: var(--mono); font-size: .82em; background: var(--sheet-2); border-radius: 3px; padding: .1em .35em; }
 .md pre { background: var(--sheet-2); border: 1px solid var(--rule); border-radius: 3px; padding: .9rem 1rem; overflow-x: auto; margin: .7rem 0; }
 .md pre code { background: none; padding: 0; }
