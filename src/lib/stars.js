@@ -4,6 +4,7 @@
 export const STAR_COUNT_KEY = 'system:github-stars:v1';
 export const STARS_TTL = 1800;
 export const STARS_ERROR_TTL = 60;
+export const STAR_FETCH_TIMEOUT_MS = 8_000;
 
 const USER_AGENT = 'binthere (+https://binthere.gaury.dev)';
 
@@ -11,23 +12,23 @@ const USER_AGENT = 'binthere (+https://binthere.gaury.dev)';
 export async function fetchStars(repository) {
   if (typeof repository !== 'string' || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) return null;
 
-  let response;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), STAR_FETCH_TIMEOUT_MS);
   try {
-    response = await fetch(`https://api.github.com/repos/${repository}`, {
+    const response = await fetch(`https://api.github.com/repos/${repository}`, {
+      signal: controller.signal,
       headers: {
         'user-agent': USER_AGENT,
         accept: 'application/vnd.github+json',
       },
     });
+    if (!response.ok) return null;
+    const data = await response.json();
+    return controller.signal.aborted ? null : parseStars(data);
   } catch {
     return null;
-  }
-  if (!response.ok) return null;
-
-  try {
-    return parseStars(await response.json());
-  } catch {
-    return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 

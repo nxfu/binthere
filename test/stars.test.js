@@ -1,7 +1,7 @@
 // stars.test.js — daily GitHub count refresh and the KV-backed public endpoint.
 import { env, SELF } from 'cloudflare:test';
-import { describe, it, expect, afterEach } from 'vitest';
-import { parseStars, fetchStars, readStoredStars, updateStarCount, STAR_COUNT_KEY } from '../src/lib/stars.js';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { parseStars, fetchStars, readStoredStars, updateStarCount, STAR_COUNT_KEY, STAR_FETCH_TIMEOUT_MS } from '../src/lib/stars.js';
 
 const ORIGIN = 'https://binthere.test';
 const REPO_API = 'https://api.github.com/repos/nxfu/binthere';
@@ -20,6 +20,7 @@ function mockFetch(status, body) {
 }
 
 afterEach(async () => {
+  vi.useRealTimers();
   globalThis.fetch = realFetch;
   await env.PASTES.delete(STAR_COUNT_KEY);
 });
@@ -51,6 +52,44 @@ describe('GET /api/stars', () => {
 });
 
 describe('daily scheduled refresh', () => {
+  it.each(['headers', 'body'])('bounds stalled GitHub %s and preserves the snapshot', async (phase) => {
+    vi.useFakeTimers();
+    const put = vi.fn();
+    const fakeEnv = { GITHUB_REPOSITORY: 'nxfu/binthere', PASTES: { get: async () => '49', put } };
+    let calls = 0;
+    globalThis.fetch = async (_url, { signal }) => {
+      calls++;
+      const stalled = () => new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+      });
+      if (phase === 'headers') return stalled();
+      return { ok: true, json: stalled };
+    };
+    const result = updateStarCount(fakeEnv);
+    await vi.advanceTimersByTimeAsync(STAR_FETCH_TIMEOUT_MS);
+    expect(await result).toEqual({ status: 'unavailable' });
+    expect(put).not.toHaveBeenCalled();
+    expect(calls).toBe(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(['not json', { stargazers_count: -1 }])('preserves an existing snapshot on invalid data %j', async (body) => {
+    vi.useFakeTimers();
+    const put = vi.fn();
+    mockFetch(200, body);
+    expect(await updateStarCount({
+      GITHUB_REPOSITORY: 'nxfu/binthere', PASTES: { get: async () => '49', put },
+    })).toEqual({ status: 'unavailable' });
+    expect(put).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('clears its deadline after success', async () => {
+    vi.useFakeTimers();
+    mockFetch(200, { stargazers_count: 50 });
+    expect(await fetchStars('nxfu/binthere')).toBe(50);
+    expect(vi.getTimerCount()).toBe(0);
+  });
   it('makes one REST request and initializes KV on the first successful fetch', async () => {
     const calls = mockFetch(200, { stargazers_count: 49, full_name: 'nxfu/binthere' });
     const result = await updateStarCount(env);
