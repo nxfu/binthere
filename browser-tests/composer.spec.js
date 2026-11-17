@@ -90,11 +90,12 @@ for (const width of [1280, 390]) {
     await page.goto(url);
     await page.locator('#reveal-burn').click();
     await expect(page.locator('#paste-content h3')).toHaveText('hi lol');
-    const paragraph = page.locator('#paste-content .md p');
+    await expect(page.locator('#paste-content .md p.subtext')).toHaveText('okiay');
+    const paragraph = page.locator('#paste-content .md p:not(.subtext)');
     await expect(paragraph).toHaveCount(1);
     // innerText reflects visible line breaks; textContent alone would miss
     // the original browser whitespace-collapse regression.
-    expect(await paragraph.innerText()).toBe('-# okiay\nitalicc0\nhiii\nyoyoyoyo');
+    expect(await paragraph.innerText()).toBe('italicc0\nhiii\nyoyoyoyo');
     await expect(paragraph.locator('em')).toHaveText(['italicc0', 'yoyoyoyo']);
     await expect(paragraph.locator('strong')).toHaveText('hiii');
     const tops = await paragraph.locator('em, strong').evaluateAll((nodes) => (
@@ -106,6 +107,34 @@ for (const width of [1280, 390]) {
     expect(await page.locator('#paste-content').textContent()).toBe(source);
   });
 }
+
+test('detects standalone Discord subtext and renders it smaller in both themes', async ({ page }) => {
+  await openComposer(page);
+  const source = '-# This is **subtext**\n-# second _line_\nNormal text';
+  await page.locator('#editor').fill(source);
+  await page.locator('#create').click();
+  await expect(page.locator('#view-success')).toBeVisible();
+  const url = await page.locator('#paste-url').textContent();
+  await page.goto(url);
+  await page.locator('#reveal-burn').click();
+  const subtext = page.locator('#paste-content p.subtext');
+  await expect(subtext).toHaveCount(2);
+  await expect(subtext.first()).toHaveText('This is subtext');
+  await expect(subtext.first().locator('strong')).toHaveText('subtext');
+  await expect(subtext.last().locator('em')).toHaveText('line');
+  for (const dark of [true, false]) {
+    await page.evaluate((enabled) => document.documentElement.classList.toggle('dark', enabled), dark);
+    const sizes = await page.locator('#paste-content .md').evaluate((container) => {
+      const small = getComputedStyle(container.querySelector('.subtext'));
+      const normal = getComputedStyle(container.querySelector('p:not(.subtext)'));
+      return { small: parseFloat(small.fontSize), normal: parseFloat(normal.fontSize), smallColor: small.color, normalColor: normal.color };
+    });
+    expect(sizes.small).toBeLessThan(sizes.normal);
+    expect(sizes.smallColor).not.toBe(sizes.normalColor);
+  }
+  await page.locator('#toggle-raw').click();
+  expect(await page.locator('#paste-content').textContent()).toBe(source);
+});
 
 test('keeps Markdown paragraphs, quotes, lists, and fenced code distinct', async ({ page }) => {
   await openComposer(page);

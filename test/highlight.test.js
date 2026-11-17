@@ -87,6 +87,10 @@ describe('detectLanguage — common shared formats', () => {
     ['<main class="page">Hello</main>', 'html'],
     ['.card { color: #abc; }', 'css'],
     ['# A note\n\n- first item', 'markdown'],
+    ['-# quieter text', 'markdown'],
+    ['ordinary text\n-# details', 'markdown'],
+    ['-#nospace', 'text'],
+    ['the -# token stays literal here', 'text'],
     ['just an ordinary sentence', 'text'],
   ])('detects %s as %s', (source, expected) => {
     expect(detectLanguage(source)).toBe(expected);
