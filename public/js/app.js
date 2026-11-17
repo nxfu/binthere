@@ -16,6 +16,15 @@ import { $, showView, toast, copyText, flashCopied, pill } from './ui.js';
 // and called `stopExpiryTimer()` before this line was reached — turning every
 // view into a stuck "loading…" screen.
 let expiryTimer = null;
+let viewGeneration = 0;
+
+function isCurrentView(generation) {
+  return generation === viewGeneration;
+}
+
+// Invalidate pending work when leaving, including pages kept in the back/forward cache.
+window.addEventListener('pagehide', () => { ++viewGeneration; stopExpiryTimer(); });
+window.addEventListener('pageshow', (event) => { if (event.persisted) location.reload(); });
 
 // ── boot ─────────────────────────────────────────────────────────────────────
 const route = location.pathname.match(/^\/p\/([^/]+)\/?$/);
@@ -32,13 +41,13 @@ if (route) {
 
 // ── CREATE ─────────────────────────────────────────────────────────────────
 function initCreate() {
+  const generation = ++viewGeneration;
   showView('create');
-  // Format is uniform now — every note is stored as plaintext and any obvious
-  // source code is syntax-highlighted at view time (see renderContent).
-  const fmt = 'plaintext';
+  const editor = $('#editor');
   // The lock toggle only records intent ("this note needs a password"); the
   // password itself is typed in the modal shown when Create link is pressed.
   let pwRequired = false;
+  let isSubmitting = false;
 
   const lock = $('#lock');
   if (lock) {
@@ -53,11 +62,11 @@ function initCreate() {
   const msg = $('#create-msg');
 
   const requestCreate = () => {
-    if (createBtn.disabled) return;
-    if (!$('#editor').value.trim()) { showMsg(msg, 'Type something first.'); $('#editor').focus(); return; }
+    if (isSubmitting) return;
+    if (!editor.value.trim()) { showMsg(msg, 'Type something first.'); editor.focus(); return; }
     msg.hidden = true;
-    if (pwRequired) openPasswordModal((password) => submitPaste(password));
-    else submitPaste('');
+    if (pwRequired) openPasswordModal((password) => submitPaste(password, generation));
+    else submitPaste('', generation);
   };
   createBtn.addEventListener('click', requestCreate);
   // Editor convention: Ctrl/Cmd+Enter submits without leaving the textarea.
@@ -65,9 +74,11 @@ function initCreate() {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); requestCreate(); }
   });
 
-  // Every note is one-time view and auto-deletes within 24h. The API enforces
-  // this lifecycle for all new pastes; old links remain readable.
-  async function submitPaste(password) {
+  // The API enforces one-time view and 24-hour expiry for every new paste.
+  // Legacy links retain their original lifecycle and remain readable.
+  async function submitPaste(password, generation) {
+    if (!isCurrentView(generation) || isSubmitting) return;
+    isSubmitting = true;
     createBtn.disabled = true;
     const label = sendTxt ? sendTxt.textContent : '';
     // Press → the arrow leaves the button (`.sending`), then the composer follows
@@ -80,34 +91,45 @@ function initCreate() {
       createBtn.classList.add('sending');
       // The label waits for the arrow to clear — swapping it mid-flight resizes
       // the button and jogs the icon the eye is following.
-      relabel = setTimeout(() => { if (sendTxt) sendTxt.textContent = 'Encrypting…'; }, ARROW_LEAD_MS);
+      relabel = setTimeout(() => {
+        if (isCurrentView(generation) && sendTxt) sendTxt.textContent = 'Encrypting…';
+      }, ARROW_LEAD_MS);
     } else if (sendTxt) {
       sendTxt.textContent = 'Encrypting…';
     }
     const arrowGone = animate ? wait(ARROW_LEAD_MS) : null;
     try {
       const { body, fragment } = await encryptPaste({
-        text: $('#editor').value,
+        text: editor.value,
         password,
-        fmt,
+        // Store ordinary text; the recipient detects code/Markdown after decryption.
+        fmt: 'plaintext',
       });
+      if (!isCurrentView(generation)) return;
       const { id, deletetoken } = await createPaste(body);
+      if (!isCurrentView(generation)) return;
       const url = `${location.origin}/p/${id}#${fragment}`;
       clearTimeout(relabel);
       if (arrowGone) await arrowGone; // never hand over ahead of the arrow
+      if (!isCurrentView(generation)) return;
       await leaveCreateView();
+      if (!isCurrentView(generation)) return;
       // Only after the server confirmed the create, and after the composer has
       // left the screen so the editor is never seen blanking. The plaintext has
       // served its purpose; don't leave it in the (now hidden) textarea. On any
       // failure it is deliberately kept — the user must not lose their note.
-      $('#editor').value = '';
-      showSuccess({ id, deletetoken, url, isBurn: true });
+      editor.value = '';
+      showSuccess({ id, deletetoken, url, isBurn: true, generation });
     } catch (e) {
       clearTimeout(relabel);
+      if (!isCurrentView(generation)) return;
       createBtn.classList.remove('sending'); // the arrow glides back in
       showMsg(msg, friendlyError(e));
+      isSubmitting = false;
       createBtn.disabled = false;
       if (sendTxt) sendTxt.textContent = label;
+    } finally {
+      clearTimeout(relabel);
     }
   }
 }
@@ -206,7 +228,7 @@ function openPasswordModal(onSubmit) {
   $('#pw-modal-dialog').focus();
 }
 
-function showSuccess({ id, deletetoken, url, isBurn }) {
+function showSuccess({ id, deletetoken, url, isBurn, generation }) {
   showView('success');
   $('#paste-url').textContent = url;
   if (isBurn) {
@@ -231,6 +253,7 @@ function showSuccess({ id, deletetoken, url, isBurn }) {
     delBtn.textContent = 'Deleting…';
     try {
       await deletePaste(id, deletetoken);
+      if (!isCurrentView(generation)) return;
       showMsg(sMsg, 'This paste has been deleted.');
       toast('deleted');
       delBtn.textContent = 'Deleted';
@@ -238,7 +261,10 @@ function showSuccess({ id, deletetoken, url, isBurn }) {
       $('#open-link').disabled = true;
       $('#copy-url').disabled = true;
     } catch (e) {
-      showMsg(sMsg, friendlyError(e));
+      if (!isCurrentView(generation)) return;
+      showMsg(sMsg, e instanceof ApiError && e.outcomeUnknown
+        ? 'Could not confirm whether deletion completed. Check the paste before retrying.'
+        : friendlyError(e));
       delBtn.disabled = false;
       delBtn.textContent = delLabel;
     }
@@ -284,6 +310,7 @@ function renderQr(url) {
 
 // ── VIEW ─────────────────────────────────────────────────────────────────────
 function initView(id) {
+  const generation = ++viewGeneration;
   // Only show the "new paste" shortcut when viewing someone's note, not on the
   // landing page (where the whole screen already is the composer).
   const newlink = $('#newlink');
@@ -291,19 +318,26 @@ function initView(id) {
 
   const fragment = location.hash.slice(1);
   if (!fragment) { status('This link is missing its decryption key.', true); return; }
-  if (id[0] === 'b') initBurnView(id, fragment);
-  else initNormalView(id, fragment);
+  if (id[0] === 'b') initBurnView(id, fragment, generation);
+  else initNormalView(id, fragment, generation);
 }
 
 // Normal (KV) paste: reads are idempotent, so fetch and decrypt directly.
-async function initNormalView(id, fragment) {
+async function initNormalView(id, fragment, generation) {
   status('decrypting…');
   let paste;
-  try { paste = await fetchPaste(id); } catch (e) { return handleReadError(e); }
+  try { paste = await fetchPaste(id); } catch (e) {
+    if (isCurrentView(generation)) handleReadError(e);
+    return;
+  }
+  if (!isCurrentView(generation)) return;
   try {
-    renderPaste(paste, await decryptPaste({ paste, fragment }));
+    const result = await decryptPaste({ paste, fragment });
+    if (!isCurrentView(generation)) return;
+    renderPaste(paste, result);
   } catch (e) {
-    if (e instanceof PasswordRequired) return promptPasswordNormal(paste, fragment);
+    if (!isCurrentView(generation)) return;
+    if (e instanceof PasswordRequired) return promptPasswordNormal(paste, fragment, generation);
     status('Could not decrypt this note. The link may be corrupted or altered.', true);
   }
 }
@@ -311,10 +345,14 @@ async function initNormalView(id, fragment) {
 // Burn paste: peek the head (adata + wrapped key, NO ciphertext) without
 // consuming, so a password can be verified before the single destructive read.
 // The paste is only consumed once we actually reveal it.
-async function initBurnView(id, fragment) {
+async function initBurnView(id, fragment, generation) {
   status('checking…');
   let head;
-  try { head = await fetchPasteMeta(id); } catch (e) { return handleReadError(e); }
+  try { head = await fetchPasteMeta(id); } catch (e) {
+    if (isCurrentView(generation)) handleReadError(e);
+    return;
+  }
+  if (!isCurrentView(generation)) return;
   try {
     // Fail-closed validation of the peeked head BEFORE any key derivation, so a
     // hostile/buggy server can't demand an absurd PBKDF2 workload (adata.iter is
@@ -326,7 +364,7 @@ async function initBurnView(id, fragment) {
 
   if (head.adata.kdf === 'pbkdf2-hkdf') {
     // Password-protected: prompt + verify against the wrapped key BEFORE consuming.
-    promptPasswordBurn(id, fragment, head);
+    promptPasswordBurn(id, fragment, head, generation);
   } else {
     // No password: an explicit "reveal" click is the consent to burn it.
     status('This note can only be viewed once.', false, { reveal: true });
@@ -340,6 +378,7 @@ async function initBurnView(id, fragment) {
       status('This note has expired — it can no longer be opened.', true);
     });
     revealBtn.onclick = async () => {
+      if (!isCurrentView(generation)) return;
       revealBtn.disabled = true;
       $('#status-actions').hidden = true;
       // Verify the fragment key against the peeked wrapped key BEFORE the
@@ -348,9 +387,11 @@ async function initBurnView(id, fragment) {
       try {
         cek = await deriveContentKey({ adata: head.adata, wk: head.wk, fragment });
       } catch {
+        if (!isCurrentView(generation)) return;
         return status('Could not decrypt this note — the link may be incomplete or corrupted. The note was not opened and still exists.', true);
       }
-      consumeBurn(id, head, cek);
+      if (!isCurrentView(generation)) return;
+      consumeBurn(id, head, cek, generation);
     };
   }
 }
@@ -365,10 +406,15 @@ function bytesEqual(a, b) {
 // password) has already been verified against the peeked head, and `cek` is the
 // unwrapped content key from that verification — reused here so the password is
 // never stretched (PBKDF2) twice and the consumed read cannot "fail late".
-async function consumeBurn(id, head, cek) {
+async function consumeBurn(id, head, cek, generation) {
+  if (!isCurrentView(generation)) return;
   status('decrypting…');
   let paste;
-  try { paste = await consumePaste(id); } catch (e) { return handleConsumeError(e); }
+  try { paste = await consumePaste(id); } catch (e) {
+    if (isCurrentView(generation)) handleConsumeError(e);
+    return;
+  }
+  if (!isCurrentView(generation)) return;
   try {
     paste = validatePaste(paste);
     // Defense in depth: the consumed record must match the authenticated head we
@@ -378,35 +424,38 @@ async function consumeBurn(id, head, cek) {
       throw new Error('head mismatch');
     }
     const result = await decryptContent({ adata: paste.adata, ct: paste.ct, cek });
+    if (!isCurrentView(generation)) return;
     // The note is consumed; drop the key from the address bar so a reload or a
     // shared screenshot of the URL doesn't carry a now-useless (but real) secret.
     if (location.hash) history.replaceState(null, '', location.pathname + location.search);
     renderPaste(paste, result);
   } catch {
-    status('Could not decrypt this note. The link may be corrupted or altered.', true);
+    if (isCurrentView(generation)) status('Could not decrypt this note. The link may be corrupted or altered.', true);
   }
 }
 
-function promptPasswordNormal(paste, fragment) {
+function promptPasswordNormal(paste, fragment, generation) {
   wirePasswordScreen(false, async (password) => {
-    renderPaste(paste, await decryptPaste({ paste, fragment, password }));
-  });
+    const result = await decryptPaste({ paste, fragment, password });
+    if (isCurrentView(generation)) renderPaste(paste, result);
+  }, generation);
 }
 
-function promptPasswordBurn(id, fragment, head) {
+function promptPasswordBurn(id, fragment, head, generation) {
   wirePasswordScreen(true, async (password) => {
     // Verify the password against the peeked wrapped key WITHOUT consuming.
     // Throws PasswordRequired / DecryptError, leaving the paste intact.
     const cek = await deriveContentKey({ adata: head.adata, wk: head.wk, fragment, password });
+    if (!isCurrentView(generation)) return;
     // Verified → the one destructive read, reusing the already-unwrapped CEK
     // (no second 310k-iteration PBKDF2 run).
-    await consumeBurn(id, head, cek);
-  });
+    await consumeBurn(id, head, cek, generation);
+  }, generation);
 }
 
 // Shared password screen. `verify(password)` throws on a bad/empty password
 // (paste untouched) and otherwise transitions the view itself.
-function wirePasswordScreen(isBurn, verify) {
+function wirePasswordScreen(isBurn, verify, generation) {
   showView('password');
   wirePeek(['#decrypt-password', '#peek2']);
   const sub = $('#password-subtitle');
@@ -427,7 +476,7 @@ function wirePasswordScreen(isBurn, verify) {
   // decrypted view. Stays latched on success (verify() replaced the view).
   let inFlight = false;
   const submit = async () => {
-    if (inFlight) return;
+    if (inFlight || !isCurrentView(generation)) return;
     inFlight = true;
     msg.hidden = true;
     btn.disabled = true;
@@ -437,8 +486,10 @@ function wirePasswordScreen(isBurn, verify) {
     btn.textContent = 'Decrypting…';
     try {
       await verify(input.value);
+      if (!isCurrentView(generation)) return;
       input.value = ''; // verified — don't leave the password in the hidden DOM
     } catch (e) {
+      if (!isCurrentView(generation)) return;
       // A GCM auth failure cannot distinguish a wrong password from a
       // corrupted/tampered link, so the message covers both honestly.
       showMsg(msg, e instanceof PasswordRequired
@@ -455,7 +506,7 @@ function wirePasswordScreen(isBurn, verify) {
 }
 
 function handleReadError(e) {
-  if (!(e instanceof ApiError)) {
+  if (!(e instanceof ApiError) || (e.networkError && e.status === 0)) {
     status('Could not reach the server — check your connection and try again.', true);
   } else if (e.status === 404) {
     status('This paste was not found.', true);
@@ -464,7 +515,9 @@ function handleReadError(e) {
   } else if (e.status === 429) {
     status('Too many requests. Please wait before trying again.', true);
   } else if (e.status >= 500) {
-    status('The server could not complete the request. Please try again later.', true);
+    status(`The server could not complete the request (HTTP ${e.status}). Please try again later.`, true);
+  } else if (e.timedOut) {
+    status('The request timed out while checking this note. No consume request was sent; you can try checking again.', true);
   } else {
     status(`The server rejected the request (HTTP ${e.status}).`, true);
   }
@@ -479,12 +532,13 @@ function handleConsumeError(e) {
     status('This paste has expired or was already consumed.', true);
   } else if (e instanceof ApiError && e.status === 429) {
     status('The consume request was rate limited. Please wait before trying again.', true);
-  } else if (e instanceof ApiError && e.responseStatus >= 500) {
-    status(`The server returned HTTP ${e.responseStatus}. Could not confirm whether the paste was consumed. Retrying may return an already-consumed response. Check with the sender before retrying.`, true);
-  } else if (!(e instanceof ApiError) || e.consumeState === 'unknown' || e.status === 0 || e.status >= 500) {
-    status('No valid consume result was received, so it could not be confirmed whether the paste was consumed. Retrying may return an already-consumed response. Check with the sender before retrying.', true);
-  } else {
+  } else if (e instanceof ApiError && (e.consumeState === 'unknown' || e.status >= 500)) {
+    const response = e.responseStatus >= 500 ? `The server returned HTTP ${e.responseStatus}. ` : '';
+    status(`${response}Could not confirm whether the paste was consumed. Retrying may return an already-consumed response. Check with the sender before retrying.`, true);
+  } else if (e instanceof ApiError && e.status > 0) {
     status(`The consume request was rejected (HTTP ${e.status}).`, true);
+  } else {
+    status('Could not confirm whether the paste was consumed. Retrying may return an already-consumed response. Check with the sender before retrying.', true);
   }
 }
 
@@ -709,6 +763,19 @@ function friendlyError(e) {
   if (e instanceof ApiError) {
     if (e.status === 429) return 'Too many pastes from your network — please wait a moment.';
     if (e.status === 413) return 'That document is too large.';
+    if (e.status >= 400 && e.status < 500) return e.message || `The server rejected the request (HTTP ${e.status}).`;
+    if (e.timedOut && e.operation === 'create') {
+      return 'Creating the paste timed out. Your text is still here, but the server may have created it. Check before retrying to avoid a duplicate.';
+    }
+    if (e.outcomeUnknown && e.operation === 'create') {
+      return 'Could not confirm whether the paste was created. Your text is still here. Check before retrying to avoid creating a duplicate.';
+    }
+    if (e.timedOut && e.operation === 'delete') {
+      return 'Deleting the paste timed out. Check whether it is still available before retrying.';
+    }
+    if (e.outcomeUnknown && e.operation === 'delete') {
+      return 'The connection was lost while deleting. Check whether the paste is still available before retrying.';
+    }
     return e.message || 'Server error. Please try again.';
   }
   if (e && /too large/.test(e.message || '')) return 'That document is too large (1 MiB max).';

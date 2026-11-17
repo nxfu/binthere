@@ -21,12 +21,13 @@
     "test": "vitest run && vitest run --config vitest.dom.config.js && vitest run --config cli/vitest.config.js && vitest run --config vitest.tools.config.js",
     "test:dom": "vitest run --config vitest.dom.config.js",
     "test:cli": "vitest run --config cli/vitest.config.js",
+    "test:tools": "vitest run --config vitest.tools.config.js",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint .",
     "kv:create": "wrangler kv namespace create PASTES && wrangler kv namespace create PASTES --preview",
-    "test:tools": "vitest run --config vitest.tools.config.js",
-    "configure-site": "node tools/configure-site.mjs"
+    "configure-site": "node tools/configure-site.mjs",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.18.5",
@@ -36,6 +37,7 @@
     "globals": "^15.15.0",
     "happy-dom": "^20.11.0",
     "vitest": "^4.1.10",
-    "wrangler": "^4.111.0"
+    "wrangler": "^4.111.0",
+    "@playwright/test": "^1.64.1"
   }
 }
