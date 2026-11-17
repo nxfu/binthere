@@ -57,4 +57,8 @@ export default [
     files: ['tools/**/*.mjs'],
     languageOptions: { globals: { ...globals.node } },
   },
+  {
+    files: ['test-tools/**/*.js'],
+    languageOptions: { globals: { ...globals.node } },
+  },
 ];

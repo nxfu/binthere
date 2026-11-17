@@ -31,6 +31,7 @@ jobs:
       # (80% statements / 70% branches) are enforced; then the DOM and CLI projects.
       - run: npm run test:coverage
       - run: npm run test:dom
+      - run: npm run test:tools
       - run: npm run test:cli
 
   # The CLI (cli/) is a cross-platform npm package with engines.node >= 20:
@@ -57,3 +58,4 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:cli
+      - run: npm run test:tools
