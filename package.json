@@ -16,15 +16,17 @@
     "node": ">=20"
   },
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "test": "vitest run && vitest run --config vitest.dom.config.js && vitest run --config cli/vitest.config.js",
+    "dev": "npm run configure-site && wrangler dev",
+    "deploy": "npm run configure-site && wrangler deploy",
+    "test": "vitest run && vitest run --config vitest.dom.config.js && vitest run --config cli/vitest.config.js && vitest run --config vitest.tools.config.js",
     "test:dom": "vitest run --config vitest.dom.config.js",
     "test:cli": "vitest run --config cli/vitest.config.js",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint .",
-    "kv:create": "wrangler kv namespace create PASTES && wrangler kv namespace create PASTES --preview"
+    "kv:create": "wrangler kv namespace create PASTES && wrangler kv namespace create PASTES --preview",
+    "test:tools": "vitest run --config vitest.tools.config.js",
+    "configure-site": "node tools/configure-site.mjs"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.18.5",
