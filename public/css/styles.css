@@ -466,6 +466,9 @@ html.dark .theme-toggle .ico-moon { display: block; }
 .md h1, .md h2, .md h3, .md h4 { font-family: var(--serif); color: var(--ink); font-weight: 500; letter-spacing: -.01em; margin: 1.1rem 0 .5rem; line-height: 1.2; }
 .md h1 { font-size: 1.6rem; } .md h2 { font-size: 1.3rem; } .md h3 { font-size: 1.1rem; }
 .md p { margin: .6rem 0; } .md ul, .md ol { margin: .6rem 0 .6rem 1.3rem; } .md li { margin: .2rem 0; }
+/* Notes keep explicit line breaks within paragraphs and quotes. Blank lines
+   remain paragraph boundaries; code blocks keep their own whitespace rules. */
+.md p, .md blockquote { white-space: pre-line; }
 .md code { font-family: var(--mono); font-size: .82em; background: var(--sheet-2); border-radius: 3px; padding: .1em .35em; }
 .md pre { background: var(--sheet-2); border: 1px solid var(--rule); border-radius: 3px; padding: .9rem 1rem; overflow-x: auto; margin: .7rem 0; }
 .md pre code { background: none; padding: 0; }

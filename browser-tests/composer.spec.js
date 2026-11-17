@@ -79,6 +79,52 @@ for (const { kind, text, width } of [
   });
 }
 
+for (const width of [1280, 390]) {
+  test(`preserves Markdown line breaks and emphasis at width ${width}`, async ({ page }) => {
+    await openComposer(page, width, 844);
+    const source = '### hi lol\n-# okiay\n*italicc0*\n**hiii**\n_yoyoyoyo_';
+    await page.locator('#editor').fill(source);
+    await page.locator('#create').click();
+    await expect(page.locator('#view-success')).toBeVisible();
+    const url = await page.locator('#paste-url').textContent();
+    await page.goto(url);
+    await page.locator('#reveal-burn').click();
+    await expect(page.locator('#paste-content h3')).toHaveText('hi lol');
+    const paragraph = page.locator('#paste-content .md p');
+    await expect(paragraph).toHaveCount(1);
+    // innerText reflects visible line breaks; textContent alone would miss
+    // the original browser whitespace-collapse regression.
+    expect(await paragraph.innerText()).toBe('-# okiay\nitalicc0\nhiii\nyoyoyoyo');
+    await expect(paragraph.locator('em')).toHaveText(['italicc0', 'yoyoyoyo']);
+    await expect(paragraph.locator('strong')).toHaveText('hiii');
+    const tops = await paragraph.locator('em, strong').evaluateAll((nodes) => (
+      nodes.map((node) => node.getBoundingClientRect().top)
+    ));
+    expect(tops[0]).toBeLessThan(tops[1]);
+    expect(tops[1]).toBeLessThan(tops[2]);
+    await page.locator('#toggle-raw').click();
+    expect(await page.locator('#paste-content').textContent()).toBe(source);
+  });
+}
+
+test('keeps Markdown paragraphs, quotes, lists, and fenced code distinct', async ({ page }) => {
+  await openComposer(page);
+  const source = '# Blocks\n\nfirst\nsecond\n\nthird\n\n> quoted\n> next\n\n- one\n- two\n\n```js\nconst first = 1;\n  const second = 2;\n```';
+  await page.locator('#editor').fill(source);
+  await page.locator('#create').click();
+  await expect(page.locator('#view-success')).toBeVisible();
+  const url = await page.locator('#paste-url').textContent();
+  await page.goto(url);
+  await page.locator('#reveal-burn').click();
+  const markdown = page.locator('#paste-content .md');
+  await expect(markdown.locator('p')).toHaveCount(2);
+  expect(await markdown.locator('p').first().innerText()).toBe('first\nsecond');
+  await expect(markdown.locator('p').last()).toHaveText('third');
+  expect(await markdown.locator('blockquote').innerText()).toBe('quoted\nnext');
+  await expect(markdown.locator('ul li')).toHaveText(['one', 'two']);
+  expect(await markdown.locator('pre code').textContent()).toBe('const first = 1;\n  const second = 2;');
+});
+
 test('failed creation preserves the editor and restores the control', async ({ page }) => {
   await openComposer(page);
   let requests = 0;
