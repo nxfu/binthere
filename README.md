@@ -1,393 +1,215 @@
 <div align="center">
 
-<p align="center">
-  <img src="public/img/wordmark-dark.svg" width="275" alt="binthere wordmark">
-</p>
+<img src="public/img/wordmark-dark.svg" width="275" alt="binthere">
 
-<h1 align="center"><strong>Say it once. <em>Sealed.</em></strong></h1>
+<h1>Say it once. <em>Sealed.</em></h1>
 
-<p align="center">Zero-knowledge, end-to-end encrypted notes that disappear after one read.</p>
+End-to-end encrypted notes. One read. Up to 24 hours.
 
-<p align="center">
-  <a href="https://binthere.gaury.dev">Try it live</a> ·
-  <a href="https://www.npmjs.com/package/binthere">Install the CLI</a> ·
-  <a href="./SPEC.md">Protocol documentation</a> ·
-  <a href="./SELF_HOSTING.md">Self-hosting guide</a> ·
-  <a href="https://github.com/nxfu/binthere/issues">Report a bug</a>
-</p>
+[**Open binthere**](https://binthere.gaury.dev) · [**CLI**](#cli) · [**Self-host**](SELF_HOSTING.md) · [**Security**](SECURITY.md) · [**Contribute**](CONTRIBUTING.md)
 
 </div>
 
-binthere is a zero-knowledge, end-to-end encrypted pastebin. Write a note, get a link,
-share it — and the note self-destructs the moment it's read. Your browser encrypts
-everything with AES-256-GCM **before** it leaves your device, so the server only ever holds
-ciphertext it can't read. Think of it as a self-destructing envelope for text: secrets,
-credentials, a private message, a snippet of code.
+Write a note, create a link, and share it. The recipient explicitly reveals the note once;
+unopened notes expire after 24 hours. Encryption and decryption happen on the user's device.
+The server stores ciphertext and never receives the decryption key.
 
-<p align="center">
-  <a href="./.nvmrc"><img alt="Node.js" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/NodeJS/nodejs3.svg"></a>
-  <img alt="JavaScript" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/Javascript/javascript3.svg">
-  <img alt="HTML" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/HTML/html3.svg">
-  <img alt="CSS" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/CSS/css3.svg">
-  <a href="./eslint.config.js"><img alt="ESLint" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/ESLint/eslint3.svg"></a>
-</p>
-
-## Why binthere?
-
-binthere is a clean-room rebuild inspired by [PrivateBin](https://privatebin.info)'s
-zero-knowledge model — modern Web Crypto, a strict CSP, atomic burn-after-read, and a real
-test suite, with the ~700 KB of jQuery/Bootstrap/zlib-WASM stripped out. It runs as a single
-Cloudflare Worker (Static Assets + KV + a Durable Object), so hosting is cheap and there is no
-server to maintain.
-
-- **No accounts or user tracking.** binthere keeps only an anonymous aggregate count of
-  successfully created pastes. It stores no visitor or paste identifiers for this count.
-- **Nobody can recover a lost link.** Not even the operator — there is no key to look up and
-  no index of pastes. The link is the only copy of the key, by design.
-- **Honest limits.** The server still sees IPs, timings, and ciphertext sizes (it's private,
-  not anonymous), and like all in-browser crypto it trusts the code the site serves — the
-  full threat model is in [`SECURITY.md`](./SECURITY.md) and summarized under
-  [Limitations](#limitations).
-
-Pick binthere if you want a paste service you can deploy in one command with nothing to
-patch, back up, or keep online yourself.
-
-## How it works
-
-The whole design rests on one trick: **where the decryption key lives**. It travels in the
-URL fragment — the part after `#` — which browsers never send to any server.
-
-```mermaid
-flowchart TD
-    A([You write a note]) --> B[Your browser locks it<br/>before it leaves your device]
-    B -->|locked note only| C[(Server stores it<br/>for up to 24 hours)]
-    B -->|the secret key stays here| D[Share link]
-    C --> E[Recipient opens the link]
-    D --> E
-    E --> F([Their browser unlocks the note<br/>and the server deletes its copy])
-```
-
-1. **You write a note.** Your browser generates a random 256-bit key and encrypts the note
-   locally with AES-256-GCM — before any network request is made.
-2. **Only ciphertext is uploaded.** The key is never sent; it's appended to your link after
-   `#`. The server stores an opaque blob it has no way to read.
-3. **You share the link.** It carries both the note's id and the key
-   (`…/p/<id>#<key>`) — the link *is* the capability to read the note. Optionally, add a
-   password: it's mixed into the key derivation, so neither the link nor the password alone
-   can decrypt.
-4. **The recipient opens it.** Their browser fetches the ciphertext, reads the key from the
-   fragment, and decrypts locally. The server never sees plaintext at any point.
-
-Every note is **one-time view**: the first reader atomically consumes it (exactly one winner,
-even under simultaneous clicks — a Durable Object guarantees it), and everyone after gets
-`410 Gone`. Unread notes self-delete after 24 hours regardless.
+![The simple binthere note composer](public/composer-preview.png)
 
 ## Features
 
-| Feature | Details |
+| Feature | What you get |
 | --- | --- |
-| Zero-knowledge | Encryption and decryption happen only on your device (browser or [CLI](#cli)); the server stores opaque ciphertext and non-secret metadata. |
-| Optional password | Layered on top of the URL key — neither alone can decrypt. |
-| Burn-after-read | Every note is a strict, atomic single-consumer read (Durable Object). The first reader gets it; everyone else gets `410 Gone`. |
-| Auto-expiry | Every new note deletes itself after 24 hours. |
-| Safe rendering | Auto-detected syntax highlighting and a safe Markdown subset (no raw HTML, sanitized links). All rendering is DOM-construction only — never `innerHTML`. |
-| Sharing tools | Copy link, QR code, delete link. |
-| Minimal surface | Strict CSP, self-hosted fonts, no third-party scripts, no visitor-level analytics, no accounts. |
+| Encryption on your device | AES-256-GCM, a fresh random key for every note, and a URL fragment that browsers do not send to the server. |
+| Optional password | The full link and the password are both needed. Password verification happens before consuming the note. |
+| One deliberate reveal | Metadata checks do not consume notes. An explicit read has exactly one successful consumer, even with concurrent requests. |
+| Automatic expiry | Every new note expires after one read or 24 hours, whichever comes first. |
+| Automatic formatting | Code and Markdown are detected after decryption. Markdown keeps single line breaks, with blank lines separating paragraphs; raw view and download are available. |
+| Simple composer | Write a note and create its link, with an optional password. The 1 MiB text limit is checked on submission, with an error only if needed. |
+| Sharing controls | Copy link, QR code, and a separate deletion token. Opening your own share link uses its one read. |
+| Predictable failures | Bounded requests, preserved editor text after failed creation, and honest warnings when destructive outcomes are uncertain. |
+| Browser and CLI | The same frozen v1 crypto format and test vectors; no client framework or third-party runtime service. |
+| Independent hosting | One Cloudflare Worker with static assets, KV, and a SQLite-backed Durable Object. |
 
-> [!NOTE]
-> New pastes always expire after 24 hours and burn after one read. The reader still supports
-> older v1 links with different expiry or reusable behavior, but new ones cannot be created.
+For [Discord-style subtext](https://support.discord.com/hc/en-us/articles/210298617-Markdown-Text-101-Chat-Formatting-Bold-Italic-Underline),
+start a line with `-# ` (including the space). It renders as smaller, muted text and supports
+the same inline emphasis, code, and safe links as ordinary Markdown. For example,
+`-# A **small** note`. Markers inside code stay literal; normal single line breaks are preserved.
 
-## How it compares
+There are no accounts or visitor analytics. A public statistics endpoint reports a best-effort
+aggregate of successfully stored new notes since statistics deployment. It receives no paste
+IDs or content for counting, and cannot reconstruct past creations.
 
-All of these are solid zero-knowledge paste/secret tools — the difference is mostly in how
-they are hosted and what they optimize for:
+## How it works
 
-| Project | Server | Storage | Distinguishing traits |
-| --- | --- | --- | --- |
-| **binthere** | Cloudflare Worker (serverless, no origin server) | Workers KV + Durable Object | Frozen spec with test vectors, atomic burn-after-read, no client framework or build step |
-| [PrivateBin](https://privatebin.info) | PHP | Filesystem / DB / S3 | Mature, many formats, discussions, i18n |
-| [Yopass](https://github.com/jhaals/yopass) | Go | Memcached / Redis | Secret-sharing focus, CLI client |
-| [cryptgeon](https://github.com/cupcakearmy/cryptgeon) | Rust | Redis | File sharing, view limits |
+1. **Write locally.** The browser or CLI encrypts the text before uploading it.
+2. **Share the capability.** The link contains the note ID and a secret after `#`.
+   The fragment stays on the client; the full link is the capability to decrypt the note.
+3. **Check before revealing.** Opening a burn link fetches only metadata and a wrapped key.
+   A missing/corrupt key or wrong password fails locally before the destructive read.
+4. **Reveal once.** A deliberate consume request returns the ciphertext to one reader and
+   removes the server's stored copy. The client decrypts it and clears the browser fragment.
+   The recipient can still copy or save the resulting plaintext.
 
-## Getting started
-
-Requires Node.js ≥ 20 (`.nvmrc` pins 22).
-
-```bash
-npm ci
-npm run dev      # wrangler dev → http://127.0.0.1:8787
+```mermaid
+flowchart LR
+    A[Write on your device] --> B[Encrypt locally]
+    B --> C[Server stores ciphertext]
+    B --> D[Share link with fragment key]
+    C --> E[Recipient explicitly reveals once]
+    D --> E
+    E --> F[Decrypt locally]
 ```
 
-KV and Durable Object storage are emulated locally, so ordinary development needs no
-Cloudflare account. The native rate-limit binding is not emulated locally; requests fail open
-when it is unavailable.
+**Know the boundaries.** The operator still sees connection metadata such as IPs, timing,
+and ciphertext sizes. Browser crypto trusts the JavaScript the deployment serves. Someone
+with the full link can guess a weak password offline, and someone who reads the plaintext
+can keep it. Lost links cannot be recovered. Read the [threat model](SECURITY.md) before
+sharing sensitive material.
 
-| Command | Description |
-| --- | --- |
-| `npm run dev` | Apply `public/site-config.json`, then start `http://127.0.0.1:8787` |
-| `npm test` | Worker suites in `workerd`, DOM mounting, CLI, and site-configuration tooling |
-| `npm run test:tools` | Site-configuration fixtures in Node |
-| `npm run test:cli` | Just the CLI suite (`cli/`, plain Node environment) |
-| `npm run test:watch` | Tests in watch mode |
-| `npm run test:coverage` | Tests with coverage report |
-| `npm run lint` | ESLint 9 (flat config) |
-| `npm run kv:create` | Create the `PASTES` KV namespace (+ preview) |
-| `npm run configure-site` | Apply your site identity to crawler metadata and `security.txt` |
-| `npm run deploy` | Apply site identity, then deploy to Cloudflare |
+A timed-out consume may already have removed the note. The client never automatically
+retries it or claims an abort rolled it back. A timed-out create can leave an inaccessible
+note on the server; its text stays in the editor, and a deliberate retry may create another
+copy. See [error semantics](ARCHITECTURE.md#error-semantics).
 
-CI runs lint, frozen-vector reproduction, and the Worker, DOM, CLI, and tooling suites.
+## Try it locally
+
+Requires Git, Node.js 20 or later, and npm. `.nvmrc` selects Node 22.
+
+```bash
+git clone https://github.com/nxfu/binthere.git
+cd binthere
+npm ci
+npm run dev
+```
+
+Open <http://127.0.0.1:8787>. KV and Durable Object storage run locally; a Cloudflare account
+is not needed for this path. The native rate-limit binding is not emulated, so the application
+fails open when it is unavailable. Dev and deploy commands apply the public site identity
+configuration before starting; preview changes with `npm run configure-site -- --dry-run`.
 
 ## CLI
 
-An official command-line client lives in [`cli/`](./cli) and is published to npm as
-[`binthere`](https://www.npmjs.com/package/binthere). It implements the same frozen protocol
-as the web client — encryption happens locally, only ciphertext is uploaded, and notes have
-the same **one read / 24 hours** lifecycle as the website. Zero runtime dependencies
-(Node ≥ 20 built-ins only).
-
 ```bash
-npm install -g binthere    # or try it without installing anything: npx binthere
+npm install -g binthere
+binthere --help
+
+# Create from stdin, a positional argument, or a file
+git diff | binthere create
+binthere create "Hello from the terminal"
+binthere create --file note.txt --password
+
+# Read a link from stdin without putting its secret fragment in command history
+binthere get -
+
+# Create machine-readable output; send only the share URL to the recipient
+binthere create --text "A short note" --json
 ```
 
-A bare `binthere` opens an interactive full-screen menu; it also composes in pipelines
-(`git diff | npx binthere` prints a share URL on stdout). See
-[`cli/README.md`](./cli/README.md) for the full command reference, interactive-mode tour,
-and security notes. Set `BINTHERE_NO_ANIMATION=1` to keep the colored TUI while disabling
-non-essential motion. Globally installed copies can update themselves with `binthere update`.
+A bare `binthere` prints help and does not consume stdin. Creation always requires
+`create`. The delete token is separate from the share link; `--quiet` suppresses creation
+diagnostics, and `--json` returns the URL, ID, and deletion token. Keep the latter output
+private if recipients should not be able to delete the note.
+
+The CLI uses Node built-ins with zero runtime dependencies and the browser's vendored
+crypto modules, checked byte for byte. Application and CLI releases are versioned separately.
+See the [CLI reference](cli/README.md) for flags, self-hosted servers, file output,
+passwords, exit codes, and updates.
 
 ## Self-hosting
 
-You can run an independent instance on your Cloudflare account. The repository includes a
-manual setup with fresh KV namespaces and a SQLite-backed Durable Object; no maintainer
-resource IDs are required. Cloudflare Free plan quotas may cover low-traffic personal use,
-but usage limits, plan rules, and prices can change. Usage above included allowances may incur
-charges or be limited. Review [Cloudflare Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/)
-before deploying.
+Use your own Cloudflare account and fresh resource IDs. Start with the
+[step-by-step self-hosting guide](SELF_HOSTING.md): it covers configuration, local checks,
+deployment, custom domains, updates, troubleshooting, and verification.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/nxfu/binthere)
 
-For the manual, copy-ready setup, custom domain steps, cost notes, and verification checklist,
-see the [self-hosting guide](./SELF_HOSTING.md). The optional one-click button provisions the
-resources described by the deployment configuration; the manual guide explains how to create
-and bind your own resources if you prefer to manage setup yourself.
+The deployment button is an optional shortcut; the manual guide explains every required
+binding and the first-deploy migration. Edit `public/site-config.json` to set your canonical
+origin, repository links, developer/announcement links, and security contact. The domain in
+the OpenGraph artwork must still be updated separately.
 
-## Architecture
+Low-traffic use may fit within Cloudflare's included allowances, but free hosting is not
+guaranteed. Workers, KV, and Durable Objects have separate limits and billing rules; traffic
+or exhausted quotas can cause charges on a paid plan or failures on a free plan. Review
+[Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/),
+[KV pricing](https://developers.cloudflare.com/kv/platform/pricing/), and
+[Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/).
+These are guidance for your own instance, not a claim about the maintainer's current bill.
 
-| Piece | Role |
+## Architecture and API
+
+| Piece | Responsibility |
 | --- | --- |
-| Static Assets (`public/`) | SPA frontend, served directly by the Worker |
-| Worker (`src/index.js`) | `/api/*` paste API — stores ciphertext, enforces size/rate/burn |
-| KV (`PASTES`) | Read/delete compatibility for older v1 reusable pastes |
-| Durable Object (`BurnPaste`) | Burn-after-read pastes, atomic single-consumer |
-| Rate Limiting binding | Abuse mitigation on paste creation (fail-open) |
+| Static assets, `public/` | Native ES modules, strict CSP, self-hosted fonts; encryption, rendering, and UI. |
+| Worker, `src/index.js` | Paste validation, routing, request limits, and read-only auxiliary endpoints. |
+| `BurnPaste`, `src/burn-do.js` | Atomic one-time notes, expiry alarms, and independent aggregate-counter shards. |
+| KV, `PASTES` | Reads/deletes for legacy reusable notes and the stored GitHub star snapshot. |
+| Cron Trigger | Daily star refresh at 00:00 UTC, bounded through body parsing; visitors only read KV. |
 
-See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the request path and [`SPEC.md`](./SPEC.md) for
-the exact cryptographic protocol and paste format v1, including frozen test vectors.
+| Request | Behavior |
+| --- | --- |
+| `POST /api/paste` | Create a v1, one-time, 24-hour note; returns 201 and an ID/deletion token. |
+| `GET /api/paste/:id` | Read a legacy note or peek a burn note without consuming it. |
+| `GET /api/paste/:id?meta=1` | Metadata peek without ciphertext or consumption. |
+| `POST /api/paste/:id/consume` | Explicit one-time read with `X-Burn-Intent: consume`; one winner, later reads return 410. |
+| `DELETE /api/paste/:id` | Delete using the `X-Delete-Token` header; returns no content. |
+| `GET /api/statistics` | Best-effort aggregate count with a zero baseline and documented deployment scope. |
+| `GET /api/stars` | Stored repository count, or 503 before initialization/unavailability; no live GitHub call. |
 
-<details>
-<summary>HTTP API</summary>
+New reusable/custom-expiry notes are rejected. Legacy v1 links remain readable and deletable;
+the reader's wider accepted format is a compatibility guarantee, not a creation option.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for data flow and
+[SPEC.md](SPEC.md) for exact schemas, status codes, crypto, and frozen vectors.
 
-The API only ever handles ciphertext — encryption happens in the client before `POST`, and
-the key fragment never appears in any request. Full details in [`SPEC.md`](./SPEC.md) §10.
+## Development and verification
 
-| Method & path | Purpose | Success | Errors |
-| --- | --- | --- | --- |
-| `POST /api/paste` | Create a one-time, 24-hour paste (format v1 JSON) | `201` | `400` invalid/lifecycle unsupported · `413` too large · `429` rate-limited |
-| `GET /api/paste/:id` | Fetch a legacy paste or peek a one-time note | `200` | `404` missing/expired · `410` burned |
-| `POST /api/paste/:id/consume` | Deliberately consume a note with `X-Burn-Intent: consume` | `200` | `400` missing intent · `403` cross-site · `404` malformed ID · `410` gone |
-| `GET /api/paste/:id?meta=1` | Peek a burn head without consuming | `200` | `404` missing · `410` burned/expired |
-| `DELETE /api/paste/:id` | Delete, with `X-Delete-Token` header | `200` | `400` missing token · `403` wrong token · `404` missing |
-| `GET /api/stars` | Stored repo star count for the topbar badge (not part of the paste protocol) | `200` | `503` snapshot unavailable or not initialized |
-| `GET /api/statistics` | Aggregate successful paste creations since statistics deployment | `200` `{ "totalPastes": n, "baseline": 0, "scope": "..." }` | `503` statistics unavailable |
-
-The delete token travels in a header — never in the URL — so it cannot land in request logs;
-the server stores and compares only its SHA-256.
-
-The paste counter is initialized to zero and counts from deployment onward; older consumed,
-deleted, or expired pastes cannot be recovered from storage. Counter writes contain only an
-anonymous increment and are best-effort, so a statistics storage failure never fails paste
-creation. The endpoint is read-only and returns the same aggregate to every visitor.
-
-</details>
-
-<details>
-<summary>Project layout</summary>
-
-```
-public/            static frontend (CSP-clean; served by Workers Static Assets)
-  index.html  css/styles.css  js/*.js  fonts/*.woff2  img/ (favicon.svg + png fallbacks + wordmark[-dark].svg)
-  _headers  robots.txt  favicon.ico  opengraph.png  .well-known/security.txt
-src/
-  index.js         Worker: /api/paste routing + asset fallback
-  burn-do.js       BurnPaste Durable Object (atomic burn-after-read)
-  lib/             ids, storage routing, rate-limit wrapper, GitHub star snapshot
-test/              vitest suites (run in workerd) + genvectors.mjs (vector regenerator)
-                   + vectors.expected.txt (pinned vector output, diffed in CI)
-tools/             verify-vectors.py — independent Python cross-check of the frozen vectors
-                   opengraph.html + render-og.mjs — source & renderer for public/opengraph.png
-cli/               the npm-published CLI client (own package.json + Node-environment tests;
-                   vendor/ mirrors public/js/{bytes,format,crypto,qrcode}.js, drift-tested)
-SPEC.md SECURITY.md ARCHITECTURE.md
-CHANGELOG.md CONTRIBUTING.md CODE_OF_CONDUCT.md LICENSE
+```bash
+npm run lint
+npm test                         # Worker, happy-dom, CLI, and Node tooling suites
+npm run test:coverage             # Worker coverage and thresholds
+npx playwright install chromium  # one-time local browser installation
+npm run test:e2e                  # Chromium against an isolated local Worker
+npm run configure-site -- --check
+node cli/scripts/sync-shared.mjs --check
 ```
 
-`public/js/{bytes,crypto,format,markdown}.js` are shared: the browser imports them as static
-assets and the Worker bundles the same files, so the paste format has a single source of truth.
+Browser tests cover creation/reveal/password/download flows, CSP, HTTP and body failures,
+ambiguous destructive outcomes, timeouts, page lifecycle, keyboard controls, reduced motion,
+narrow layouts, and composer boundaries. A mobile viewport is still Chromium; other browser
+engines and production infrastructure require separate verification.
 
-</details>
-
-## Limitations
-
-Most of these are deliberate scope choices, not bugs. Know them before relying on binthere:
-
-- **Not anonymous or metadata-free.** The server sees IP, timing, ciphertext size, and the
-  non-secret `adata` (IVs, KDF params, format flags). It only cannot read your *plaintext*
-  ([`SECURITY.md`](./SECURITY.md) §3).
-- **No protection from a compromised deployment.** Decryption runs in JavaScript the server
-  delivers, so a malicious or hacked host could serve code that leaks your key. In-browser E2E
-  encryption trusts the origin ([`SECURITY.md`](./SECURITY.md) §4).
-- **Lose the link, lose the note.** No accounts, no server-side index — the id + key exist only
-  in the URL you share. Nobody, including you, can recover or list pastes.
-
-<details>
-<summary>More limitations</summary>
-
-- **Burn passwords can be brute-forced offline.** The non-consuming peek returns the wrapped
-  key so a password can be checked before the single read — someone who already has the URL
-  secret can guess a weak password without burning the note. Use a strong password
-  ([`SPEC.md`](./SPEC.md) §8 documents the trade-off).
-- **Password KDF is PBKDF2-SHA256** (310k iterations), not a memory-hard KDF. Argon2id is on
-  the roadmap.
-- **New notes have a fixed lifecycle:** one read or 24 hours. Existing v1 links with legacy
-  lifecycle settings remain readable.
-- **English only.**
-- **The rate limiter fails open** — it is abuse mitigation, not access control.
-- **The OpenGraph card artwork** includes the origin domain; re-render it when self-hosting
-  (see [Self-hosting](#self-hosting)).
-
-</details>
-
-## FAQ
-
-<details>
-<summary>Can the operator read my notes?</summary>
-
-No. Content is encrypted with AES-256-GCM in your browser before upload; the server stores
-only ciphertext and non-secret metadata. The decryption key lives in the URL fragment, which
-browsers never send to the server. What the server *does* see (IP, timing, sizes) is spelled
-out in [`SECURITY.md`](./SECURITY.md) §3.
-
-</details>
-
-<details>
-<summary>I lost the link — can the note be recovered?</summary>
-
-No. There are no accounts and no server-side index; the paste id and decryption key exist
-only in the URL. Without it, the ciphertext is unrecoverable — by design.
-
-</details>
-
-<details>
-<summary>Why does my link say "expired or was already opened"?</summary>
-
-Every note is one-time view: the first reader atomically consumes it, and everyone after
-(including you, if you open your own link first) gets `410 Gone`. Notes also self-delete
-after 24 hours even if never opened.
-
-</details>
-
-<details>
-<summary>Does adding a password make the link safe to send in the clear?</summary>
-
-It helps — the password is mixed into the key derivation, so the link alone cannot decrypt.
-But someone holding the link can test passwords offline without burning the note, so a weak
-password only slows them down. Use a strong password and send it over a different channel
-([`SPEC.md`](./SPEC.md) §8).
-
-</details>
-
-<details>
-<summary>What does the recipient need?</summary>
-
-Just the link and any modern browser — Web Crypto (`SubtleCrypto`) is the only requirement.
-No account, extension, or app.
-
-</details>
-
-<details>
-<summary>Can I create pastes from a script or CLI?</summary>
-
-Yes — the official CLI is published to npm: `npm install -g binthere` (or `npx binthere`).
-It speaks the same frozen protocol as the web client and is tested against the same vectors;
-see the [CLI section](#cli). Third-party clients are possible too: the HTTP API accepts only
-ciphertext in paste format v1, and the frozen test vectors in [`SPEC.md`](./SPEC.md) make an
-independent implementation verifiable.
-
-</details>
+[CONTRIBUTING.md](CONTRIBUTING.md) explains runtimes, vectors, test setup, manual checks,
+and releases. [CHANGELOG.md](CHANGELOG.md) records implemented changes. No frontend build
+step is required; Wrangler bundles the Worker for deployment.
 
 ## Roadmap
 
-Roughly in priority order:
+This is a direction for maintenance and investigation, not a delivery schedule.
 
-- [x] **Official CLI client** — shipped; on npm as
-      [`binthere`](https://www.npmjs.com/package/binthere) (see [CLI](#cli))
-- [ ] **Argon2id** as a versioned password-KDF option alongside PBKDF2 (spec-first: vectors before code)
-- [ ] **File attachments** — encrypted binary blobs with size limits (likely R2 for large files)
-- [ ] **Headless-browser CSP + render test** (Playwright) in CI, asserting zero CSP violations
-      across the create/view/burn flows
+| Status | Direction |
+| --- | --- |
+| Planned maintenance | Keep frozen v1 browser/CLI compatibility, regression coverage, accessibility, and deployment documentation current. |
+| Under consideration | Broader browser-engine verification after an explicit support policy is agreed. |
+| Under consideration | A versioned memory-hard password KDF such as Argon2id, starting with threat-model review, benchmarks, and independent vectors. |
+| Long-term exploration | Encrypted attachments, only after storage/size limits, one-time lifecycle, costs, and client interoperability are designed. |
 
-## Security
+## Contributing and security
 
-binthere is a security-sensitive cryptographic application. The threat model, explicit
-non-goals, and vulnerability-reporting process are in [`SECURITY.md`](./SECURITY.md); the
-frozen protocol and paste format live in [`SPEC.md`](./SPEC.md).
+Issues and focused PRs are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md),
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and the [security model](SECURITY.md) first.
+Crypto changes are spec-first; keep strict CSP and DOM-only safe rendering intact.
 
-> [!IMPORTANT]
-> Report suspected vulnerabilities privately to [nxfu@proton.me](mailto:nxfu@proton.me)
-> (see `SECURITY.md` §8). Do not open a public issue with exploit details.
+Report suspected vulnerabilities privately to [nxfu@proton.me](mailto:nxfu@proton.me),
+as described in [SECURITY.md](SECURITY.md). Do not post secret links or exploit details in
+public issues.
 
-## Contributing
+## Acknowledgements and license
 
-Issues and PRs are welcome — see [`CONTRIBUTING.md`](./CONTRIBUTING.md). Two hard rules:
+Inspired by [PrivateBin](https://privatebin.info)'s zero-knowledge model.
+QR rendering vendors Kazuhiko Arase's MIT-licensed
+[qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator).
+Newsreader, Geist, and JetBrains Mono are self-hosted; see
+[font notices](public/fonts/THIRD-PARTY-NOTICES.md).
 
-1. **Crypto is spec-first.** Any change to the protocol, paste format, or canonical AAD must
-   update [`SPEC.md`](./SPEC.md) *first* — never silently — then regenerate the frozen vectors
-   with `node test/genvectors.mjs` (and refresh `test/vectors.expected.txt`, which CI diffs
-   byte-for-byte). Never hand-edit the pinned hexes in `test/crypto.test.js`.
-2. **Keep the CSP strict and rendering XSS-safe.** No inline styles/scripts, no CDNs, no
-   `innerHTML` on user content. New rendering paths need a case in `test/markdown.test.js`.
-
-Run `npm run lint` and `npm test` before opening a PR; Worker suites run in the real `workerd`
-runtime.
-
-## Tech stack
-
-- [Cloudflare Workers](https://workers.cloudflare.com/) — Static Assets, KV, Durable Objects, native rate limiting
-- Vanilla JavaScript (native ES modules) — no framework, no bundler for the frontend
-- [Web Crypto API](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto) — AES-256-GCM, PBKDF2-SHA256
-- [Vitest](https://vitest.dev/) — Worker suites in the real `workerd` runtime, CLI suites in Node
-- [ESLint 9](https://eslint.org/) — flat config
-
-## Acknowledgements
-
-- [PrivateBin](https://privatebin.info) — the zero-knowledge pastebin whose model this is a
-  clean-room rebuild of
-- [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) by Kazuhiko Arase
-  (MIT) — vendored in `public/js/qrcode.js` for offline, CSP-safe QR rendering
-- [Newsreader](https://fonts.google.com/specimen/Newsreader) by Production Type,
-  [Geist](https://vercel.com/font) by Vercel, and
-  [JetBrains Mono](https://www.jetbrains.com/lp/mono/) by JetBrains (all SIL OFL 1.1) —
-  self-hosted in `public/fonts/`; license texts in
-  [`public/fonts/THIRD-PARTY-NOTICES.md`](./public/fonts/THIRD-PARTY-NOTICES.md)
-
-## License
-
-[MIT](./LICENSE) © 2026 nxfu
-
----
-
-<p align="center">
-  Built to be shared once and forgotten.<br>
-  If binthere is useful to you, consider giving it a ⭐ — it helps others find it.
-</p>
+[MIT](LICENSE) © 2026 nxfu

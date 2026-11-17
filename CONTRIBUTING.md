@@ -32,12 +32,19 @@ Requires Node.js ≥ 20 (`.nvmrc` pins 22) and npm. From the `binthere/` directo
 npm ci
 npm run dev      # wrangler dev → http://127.0.0.1:8787 (local KV + DO storage)
 npm test         # Vitest: workerd, DOM, CLI, and Node tooling suites
-npm run test:tools # site-configuration fixtures in Node
 npm run test:cli # just the CLI suite
+npm run test:tools # site configuration fixtures in Node
 npm run test:watch   # workerd suites, watch mode
 npm run test:coverage  # istanbul coverage (v8 provider can't run inside workerd)
 npm run lint     # ESLint 9 flat config (eslint.config.js)
+npm run test:e2e # Playwright Chromium flows against a local Worker
+npx playwright install chromium # one-time browser install for local e2e runs
 ```
+
+On a slower machine, a password regression can exceed Vitest's default five-second budget.
+Use `npm run test:coverage -- --testTimeout=15000` to allow more time for that invocation;
+do not reduce crypto parameters to make a test faster. For a low-resource browser run use
+`npm run test:e2e -- --workers=1`.
 
 Local Wrangler emulates KV and Durable Object storage. The native rate-limit binding is not
 emulated, and the Worker fails open if it is unavailable. Keep ordinary development local;
@@ -94,25 +101,45 @@ diff of `node test/genvectors.mjs` output against `test/vectors.expected.txt`). 
 | `test/highlight.test.js` | Code tokenizer / classification |
 | `test/ids.test.js` | ID and delete-token generation |
 | `test/burn.test.js` | Backend API + atomic single-consumer burn concurrency + password peek |
+| `test/statistics.test.js` | Anonymous aggregate counting and storage-failure isolation |
+| `test/stars.test.js` | Scheduled snapshots, deadlines, initialization and failure preservation |
 
 DOM-mount suites under `test-dom/` use happy-dom, not `workerd`. The CLI package has its own
 Node-environment suites under `cli/test/` (frozen vectors re-run in plain Node, URL parsing,
 mocked-API round trips, and a vendor-drift byte-compare that fails if
 `cli/vendor/` diverges from `public/js/` — re-align with `node cli/scripts/sync-shared.mjs`).
 
+`test-tools/` runs in Node through `vitest.tools.config.js`. Temporary fixtures verify site
+validation, no writes on late validation failure, preview/check modes, escaping, and repeat-run
+stability. `npm test` includes tooling, and CI also runs it on the CLI's Windows/macOS and
+Node-version matrix. These tests do not modify the real site's configuration.
+
 Add or update tests alongside behavior changes. New rendering paths and any crypto/format change
 **require** test coverage, not just passing existing suites.
 
-### Browser and manual checks
+### Browser coverage and manual checks
 
-There is no browser automation yet. DOM-mount suites do not run the full browser app.
-Manually exercise create, explicit reveal, password retry, download, and delete in local
-Wrangler at desktop and narrow viewport sizes. Check CSP violations and uncertain destructive
-failures; a network error cannot prove that a consume was rolled back.
+The Playwright suites in `browser-tests/` run the real app in Chromium against a local
+Wrangler Worker. They cover create/reveal/burn/download under the production CSP, password
+retry, HTTP error distinctions, create/peek/consume/delete timeouts, delete failures,
+confirmation cancellation, keyboard focus restoration, reduced-motion creation, narrow
+layouts, exact/multibyte size limits on submission, and receiver-side automatic formatting. Recovery tests
+let the local Worker consume before dropping the response, stall successful bodies after
+headers, verify legacy-read deadlines, and reject late page-lifecycle results. Keyboard
+tests include focus trapping and destructive-confirmation cancellation. Tests start their own
+Worker with `--local`, use `.wrangler/e2e` storage, refuse to reuse an existing server, and
+cannot be redirected with an external base URL.
 
-Site-configuration tests in `test-tools/` use temporary filesystem fixtures in Node. They
-verify validation, no writes on validation failures, check/preview modes, escaping, and repeat
-runs. CI runs these on the Windows/macOS and Node-version matrix too.
+Run `npm run dev` to manually exercise changed UI paths as well. A narrow Chromium viewport
+does not verify Safari, Firefox, or a physical mobile browser; test the browsers you intend
+to support. Keyboard dismissal/focus checks and a reduced-motion creation flow do not replace
+a complete accessibility review. For destructive requests, verify that uncertain outcomes
+are never described as safely rolled back. Protocol and storage changes also need focused
+Worker and CLI tests; a browser pass alone is not enough.
+
+The local browser suite does not verify production DNS, TLS, Cloudflare resource bindings,
+account quotas, or billing. Those checks belong to the deployment owner; see
+[`SELF_HOSTING.md`](./SELF_HOSTING.md).
 
 > [!NOTE]
 > **Windows:** after the suite passes you may see `vitest-pool-worker: Unable to remove
@@ -154,7 +181,7 @@ format is versioned separately again, in `SPEC.md` (currently v1).
 1. Bump `cli/package.json` `version` (and the CHANGELOG), commit.
 2. Tag and push: `git tag cli-vX.Y.Z && git push --tags`.
 3. [`release.yml`](./.github/workflows/release.yml) takes it from there: it re-runs lint,
-   the vector byte-diff, all three test projects, verifies the tag matches
+   the vector byte-diff, all four test projects, verifies the tag matches
    `cli/package.json`, then runs `npm publish --provenance --access public` from `cli/`
    (prepack re-checks vendor drift as a final gate). It needs the `NPM_TOKEN` repository
    secret (an npm automation token with publish rights).

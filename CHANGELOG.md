@@ -8,16 +8,33 @@ versioned separately from the application (see [`SPEC.md`](./SPEC.md), currently
 
 ### Documentation
 
+- Reorganized the README around product features, explicit reveal semantics, CLI examples,
+  self-hosting, verification, and a roadmap that separates maintenance from investigations.
+- Documented configuration preview/check modes, manual OpenGraph artwork, scheduled-star
+  initialization, statistics baseline/best-effort limits, and separate Cloudflare cost sources.
 - Added a beginner-friendly self-hosting guide covering fresh KV setup, first-deploy Durable
   Object provisioning, local development, custom domains, current Cloudflare pricing links,
   troubleshooting, and a deployment checklist.
 - Clarified local rate-limit behavior, aggregate statistics privacy boundaries, and the current
-  test runtime boundaries and manual browser verification.
+  scope and gaps of automated browser coverage.
 
 ### Added
 
+- Added Discord-style `-# ` subtext at the beginning of a line, including automatic Markdown
+  detection when subtext is the only formatting. Subtext uses smaller theme-aware text and
+  the existing safe inline renderer; code stays literal and raw view preserves the source.
+- Added regression coverage for interrupted successful consume bodies, response loss after
+  actual local consumption, page lifecycle, keyboard focus trapping and deletion cancellation,
+  exact Unicode size limits, and receiver-side format detection. Browser tests force local
+  bindings and use separate E2E state.
+- Added Node tooling tests with temporary site-configuration fixtures, included in `npm test`
+  and the existing CI platform matrix.
+- Added non-writing `--dry-run` and `--check` modes to site configuration. All input values
+  and target settings validate before files are written; repeat runs skip unchanged files.
+- **Browser end-to-end coverage** with Playwright in CI. Chromium runs the real create, reveal,
+  burn, password retry, and download flows and checks for CSP violations across the pages.
 - **One-file self-host configuration.** `public/site-config.json` now drives canonical/social
-  metadata, repository and footer links, the GitHub snapshot repository, and `security.txt`; the dev and
+  metadata, repository and footer links, the GitHub star proxy, and `security.txt`; the dev and
   deploy commands apply it automatically.
 
 - **GitHub star badge in the topbar** — the mark, a hairline divider, a star and the count,
@@ -30,6 +47,10 @@ versioned separately from the application (see [`SPEC.md`](./SPEC.md), currently
 
 ### Security
 
+- Interrupted HTTP 200 consume bodies retain an uncertain outcome instead of reporting a
+  rejected successful status. Known rejection statuses stay distinct; consumption never
+  retries automatically. Leaving the page invalidates pending UI work, with a fresh load
+  when restoring a cached page.
 - **Oversized uploads are rejected incrementally, not after buffering.** `POST /api/paste`
   now streams the request body and stops the moment the running byte count crosses `MAX_BODY`
   (4 MiB), returning `413` without holding more than one chunk beyond the cap. Previously the
@@ -40,6 +61,18 @@ versioned separately from the application (see [`SPEC.md`](./SPEC.md), currently
 
 ### Changed
 
+- Markdown paragraphs and blockquotes preserve single line breaks while blank lines still
+  separate paragraphs. Headings, emphasis, lists, and fenced code keep their existing behavior.
+- Scheduled GitHub star fetches now have an eight-second deadline covering headers and body
+  parsing; failure preserves the last snapshot and all completion paths clear their timers.
+- **The CLI uses explicit commands** and prepares the independently versioned `0.2.0`
+  release; the repository root version remains `1.1.0`. Bare `binthere` prints help, and
+  piped content requires `binthere create`.
+- **Browser requests have bounded deadlines**, including response parsing, with recovery
+  messages for uncertain create/delete/consume outcomes and guards against stale UI updates.
+- **The composer stays simple:** no format selector, size counter, or always-visible size hint.
+  New browser notes use plaintext format metadata; code/Markdown is detected by the receiver
+  after decryption. The existing 1 MiB limit is enforced on submission with a clear error.
 - **Star counts refresh once daily at 00:00 UTC.** Only the scheduled Worker calls GitHub; it
   compares the new count with the KV snapshot and skips the write when unchanged. The public
   endpoint serves the stored count and no longer spends GitHub API quota per colo or visitor.
@@ -47,12 +80,6 @@ versioned separately from the application (see [`SPEC.md`](./SPEC.md), currently
   longer writes reusable or custom-expiry pastes, and the browser and CLI crypto clients do not
   expose those settings. Existing v1 links remain readable and deletable.
 
-- **The CLI TUI has smoother motion and clearer page transitions.** Animation uses
-  deadline-based frame pacing; the logo shine starts immediately and repeats every six
-  seconds; menu selection, the intro, ember pulse, and progress spinner were refined; and
-  each wizard page clears the viewport before drawing. `BINTHERE_NO_ANIMATION=1` disables
-  non-essential motion without disabling colors or keyboard interaction. Result-screen
-  shine stops after a terminal resize rather than repainting stale absolute coordinates.
 - **The CLI can update a global npm installation.** `binthere update` checks the published
   version and installs `binthere@latest`; `binthere version` (or `binthere -v`) performs the
   version check without changing the installation. Repository checkouts and temporary `npx`

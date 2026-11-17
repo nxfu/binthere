@@ -119,8 +119,8 @@ dependencies. Because npm cannot pack files outside the package root, `cli/vendo
 `node cli/scripts/sync-shared.mjs` re-aligns them — `public/js/` stays the single source of
 truth. `cli/src/` is a thin consumer on top: an API client with a configurable base URL,
 share-URL build/parse, `create`/`get`/`delete` commands mirroring the browser's flows
-(including the safe `?meta=1` peek before a destructive burn read), and a dependency-free
-interactive TUI.
+(including the safe `?meta=1` peek before a destructive burn read). Bare `binthere` shows
+help; creation requires an explicit `create` command, including in pipelines.
 
 ## Error semantics
 
@@ -130,6 +130,18 @@ read/delete, `400` invalid, `403` wrong delete token, `404` missing, `410` burne
 `413` too large, `429` rate-limited. The client reads them directly. API JSON responses also
 carry `cache-control: no-store` and `x-content-type-options: nosniff` (static assets get their
 security headers from `public/_headers`).
+
+Browser deadlines cover headers and body parsing: 15 seconds for create, read, metadata peek,
+and delete; 20 seconds for consume. Incomplete HTTP 200 consume bodies, network loss, and 5xx
+responses leave an unknown outcome; abort cannot undo consumption. Known 4xx rejections remain
+distinct. Consume never retries automatically. Failed creation preserves text but
+may still have stored a note. Page lifecycle invalidates pending UI updates; back/forward-cache
+restoration reloads before accepting new work.
+
+Site identity comes from `public/site-config.json`. `tools/configure-site.mjs` validates all
+values and targets before writes, skips unchanged files, and supports non-writing `--check`
+and `--dry-run` modes. OpenGraph artwork is separate. Scheduled star fetches have an
+eight-second header/body deadline and preserve the previous KV snapshot on failure.
 
 ## Testing
 
@@ -141,14 +153,19 @@ hand-edited) and independently cross-checked by a from-scratch Python implementa
 (`tools/verify-vectors.py`).
 
 The CLI has its own suites under `cli/test/`, run in plain Node (`npm run test:cli`; `npm test`
-runs the Worker, DOM, CLI, and tooling suites): the SPEC §11 vectors re-verified against
+runs Worker, DOM, CLI, and tooling suites): the SPEC §11 vectors re-verified against
 Node's WebCrypto, URL parsing, mocked-API round trips (including burn-ordering and wrong-token
 assertions), TUI/QR rendering, and the vendor-drift byte-compare against `public/js/`.
 
-Site identity comes from `public/site-config.json`. The configurator validates all values
-and target files before writes, skips unchanged files, and supports non-writing `--check`
-and `--dry-run` modes. `test-tools/` checks these behaviors with temporary fixtures.
+`test-dom/` runs DOM mounting, accessibility, and API-client checks in happy-dom.
+`test-tools/` verifies the configurator with temporary filesystem fixtures in Node.
+`browser-tests/` runs the real app in Chromium through a local Wrangler Worker. Coverage
+includes create/reveal/burn, password retry, downloads and CSP, HTTP failures, bounded-request
+recovery, destructive confirmations, keyboard dialog dismissal, reduced motion, narrow
+layouts, automatic receiver formatting, submission size limits, actual consume-response loss, interrupted bodies, and page
+lifecycle. The configuration starts a local server with remote bindings disabled and separate
+E2E storage; it does not accept a production base URL. See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for
+manual verification and the distinction between a mobile viewport and another browser engine.
 
-There is no automated browser suite yet. See the manual checks in
-[`CONTRIBUTING.md`](./CONTRIBUTING.md). CI runs lint, frozen-vector reproduction, and the
-Worker, DOM, CLI, and tooling suites.
+CI (`.github/workflows/ci.yml`) runs lint, a byte-for-byte diff of the regenerated vectors
+against `test/vectors.expected.txt`, the Vitest suites, and Playwright on every push/PR.
