@@ -1,6 +1,6 @@
 {
   "name": "binthere",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "CLI for binthere — a zero-knowledge, end-to-end encrypted pastebin. Encrypts locally with AES-256-GCM; the key rides in the URL fragment and never reaches the server.",
   "license": "MIT",
   "author": "nxfu",
