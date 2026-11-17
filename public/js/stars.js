@@ -34,11 +34,16 @@
   }
   if (cached && /^\d{1,9}$/.test(cached)) show(Number(cached));
 
-  fetch('/api/stars')
+  const controller = new AbortController();
+  const timer = setTimeout(function () { controller.abort(); }, 8_000);
+  window.addEventListener('pagehide', function () { controller.abort(); }, { once: true });
+
+  fetch('/api/stars', { signal: controller.signal })
     .then(function (res) {
       return res.ok ? res.json() : null;
     })
     .then(function (data) {
+      if (!link.isConnected) return;
       if (!data || !Number.isInteger(data.stars) || data.stars < 0) return;
       show(data.stars);
       try {
@@ -49,5 +54,8 @@
     })
     .catch(function () {
       /* offline, blocked, or GitHub down — keep whatever is already shown */
+    })
+    .finally(function () {
+      clearTimeout(timer);
     });
 })();

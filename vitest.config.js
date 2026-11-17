@@ -26,14 +26,14 @@ export default defineConfig({
     // The CLI's suites run in plain Node via their own project
     // (cli/vitest.config.js), and the DOM-mount suites run under happy-dom
     // (vitest.dom.config.js) — keep both out of the workerd pool.
-    exclude: ['**/node_modules/**', 'cli/**', 'test-dom/**', 'test-tools/**'],
+    exclude: ['**/node_modules/**', 'cli/**', 'test-dom/**', 'test-tools/**', 'browser-tests/**'],
     coverage: {
       // istanbul (source instrumentation), NOT v8: the v8 provider needs
       // node:inspector, which doesn't exist inside workerd.
       provider: 'istanbul',
       include: ['src/**/*.js', 'public/js/**/*.js'],
-      // Vendored library and browser-only glue with no DOM test harness
-      // (see README roadmap: Playwright e2e would cover these).
+      // Exclude vendored code and browser controllers from Worker instrumentation;
+      // DOM/API checks and real-browser flows run in their own projects.
       exclude: ['public/js/qrcode.js', 'public/js/{api,ui,app,theme,theme-init,announce,stars}.js'],
       // Floors, not targets — catch a large untested addition, don't block
       // small refactors. Measured 2026-07: ~84% statements / ~79% branches.
