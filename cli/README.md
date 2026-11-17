@@ -127,7 +127,7 @@ to **stderr**, so `binthere create | pbcopy` copies just the link.
 | `--password` | Prompt for a password (hidden; never a flag value) |
 | `--password-env <VAR>` | Read the password from an environment variable (for scripts) |
 | `-q, --qr` | Also print a scannable QR code (to stderr) |
-| `-j, --json` | Print `{url, id, deletetoken, expire, burn}` as JSON |
+| `-j, --json` | Print `{url, id, deletetoken}` as JSON |
 
 ### `binthere get <share-url | ->` (alias: `view`)
 

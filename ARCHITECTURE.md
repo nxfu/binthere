@@ -7,28 +7,31 @@ one `wrangler.toml`) keeps the security-sensitive integration surface small.
 ## Request path
 
 ```
-                         ┌─────────────────────────── Cloudflare Worker ───────────────────────────┐
-                         │                                                                          │
-  GET /                  │  run_worker_first = ["/api/*"]                                            │
-  GET /p/<id>            │        │                                                                  │
-  GET /css/… /js/…       │        ├─ path NOT /api/*  ─▶  Static Assets (public/)                    │
-  GET /fonts/…           │        │                       • exact file, else SPA fallback index.html │
-                         │        │                                                                  │
-  POST   /api/paste      │        └─ path /api/*     ─▶  src/index.js router                          │
-  GET    /api/paste/:id  │                                 ├─ POST  create  ─▶ KV or BurnPaste DO     │
-  DELETE /api/paste/:id  │                                 ├─ GET   read    ─▶ KV or BurnPaste DO     │
-                         │                                 ├─ DELETE delete ─▶ KV or BurnPaste DO     │
-  GET    /api/stars      │                                 └─ GET   stars   ─▶ api.github.com (cached)│
-                         └──────────────────────────────────────────────────────────────────────────┘
+Browser requests
+  /, /p/<id>, /css/*, /js/*  -> Static Assets (SPA fallback)
+  POST /api/paste            -> Worker -> BurnPaste DO (create)
+  GET /api/paste/:id         -> Worker -> KV (legacy read) or DO (peek)
+  POST /api/paste/:id/consume -> Worker -> BurnPaste DO (read and delete)
+  DELETE /api/paste/:id      -> Worker -> KV or BurnPaste DO
+  GET /api/stars            -> Worker -> PASTES KV snapshot
+  GET /api/statistics       -> Worker -> aggregate DO shards
+
+Daily Cron Trigger (00:00 UTC) -> GitHub -> compare -> KV write if changed
 ```
 
 - `_headers` (in `public/`) applies the strict CSP + security headers to every asset response.
 - `not_found_handling = "single-page-application"` makes `/p/<id>` serve `index.html`; the
   client reads the id from the path and the key from the `#fragment`.
-- `GET /api/stars` is the one route outside the paste path: it proxies the repository's public
-  star count for the topbar badge, since the page cannot reach `api.github.com` itself under
-  `connect-src 'self'`. The answer is the same for every visitor, says nothing about them, and
-  is cached at the edge and in the browser (30 min) so page loads don't become GitHub requests.
+- `GET /api/stars` is a route outside the paste path: it reads the repository's public
+  star count snapshot from `PASTES` KV for the topbar badge. A Cron Trigger fetches GitHub once
+  daily at 00:00 UTC and writes the snapshot only when the count changes. Visitors never call
+  GitHub; the endpoint response is cached in the browser for 30 minutes. Before the first
+  successful scheduled refresh, it returns `503` and the UI falls back to the repository link.
+- `GET /api/statistics` reads and sums 16 Durable Object shards. A successful paste write
+  schedules one anonymous increment on a randomly selected shard with `waitUntil`; only the
+  increment is sent, never a paste ID or any paste/request data. The response is cached briefly
+  and exposes only `{ totalPastes, baseline, scope }`. Writes are best-effort and cannot fail
+  paste creation.
 
 ## Zero-knowledge boundary
 
@@ -40,10 +43,11 @@ expiry option, and — server-side only — a `SHA-256` of the delete token. See
 ## Storage routing (by id prefix)
 
 Paste ids carry a 1-char class prefix so the read path picks the backend with **no extra
-lookup**, and the client knows a burn paste is single-use *before* fetching it:
+lookup**. New ids use the burn class; the KV class remains for reading and deleting older v1
+links:
 
-- `k…` → **KV** (`PASTES`). Immutable value `{ p: paste, dth }`, native `expirationTtl`.
-  Reads are idempotent; eventual consistency is fine because the value never changes.
+- `k…` → **KV** (`PASTES`). Legacy immutable value `{ p: paste, dth }`, native TTL. Reads are
+  idempotent; the API no longer creates new `k…` pastes.
 - `b…` → **`BurnPaste` Durable Object**, addressed `idFromName(id)`. The value lives in DO
   storage. Every mutation runs inside `blockConcurrencyWhile`, so read-and-delete is atomic:
   the first `consume()` returns the ciphertext and deletes it; concurrent/later reads get
@@ -52,12 +56,11 @@ lookup**, and the client knows a burn paste is single-use *before* fetching it:
   destructive read (`SPEC.md` §8). Expiry is a DO `alarm` plus a lazy check on read.
 
 ```
-create ─┬─ bar=false ─▶ id="k…" ─▶ PASTES.put(id, {p, dth}, {expirationTtl})
-        └─ bar=true  ─▶ id="b…" ─▶ BURN.get(idFromName(id)).create(paste, dth, ttl)
-
-read   ─┬─ id[0]="k" ─▶ PASTES.get → 200 | 404
-        ├─ id[0]="b" ─▶ BURN…consume() → 200 (once) | 410
-        └─ id[0]="b" + ?meta=1 ─▶ BURN…peek() → 200 head (no consume) | 410
+create  -> id="b..." -> BURN.get(idFromName(id)).create(paste, dth, 86400)
+GET     -> id[0]="k" -> PASTES.get -> 200 | 404 (legacy)
+GET     -> id[0]="b" -> BURN.peek() -> 200 head (no consume) | 410
+?meta=1 -> either class -> metadata only (no consume)
+POST /consume -> id[0]="b" -> BURN.consume() -> 200 ciphertext (once) | 410
 ```
 
 ## Modules
@@ -68,7 +71,7 @@ asset** and the **Worker bundles the same file** — one source of truth for the
 | Module | Runs in | Responsibility |
 |---|---|---|
 | `public/js/bytes.js` | browser + worker + tests | base64url, SHA-256, CSPRNG bytes, constant-time hex compare |
-| `public/js/format.js` | browser + worker + tests | paste format v1 validation (fail-closed) + canonical AAD + expiry map |
+| `public/js/format.js` | browser + worker + tests | paste format v1 validation (fail-closed), legacy expiry parsing, and canonical AAD |
 | `public/js/crypto.js` | browser + tests | the protocol: PBKDF2/HKDF/AES-GCM, gzip with decompression cap |
 | `public/js/markdown.js` | browser + tests | safe Markdown → DOM (no raw HTML, href allowlist) |
 | `public/js/highlight.js` | browser + tests | code detection + `textContent`-only syntax highlighting |
@@ -77,7 +80,34 @@ asset** and the **Worker bundles the same file** — one source of truth for the
 | `public/js/qrcode.js` | browser | vendored MIT `qrcode-generator` (rendered as a `data:` image) |
 | `src/index.js` | worker | API routing, size guard, id allocation, error mapping |
 | `src/burn-do.js` | worker | `BurnPaste` Durable Object |
-| `src/lib/{ids,store,ratelimit,stars}.js` | worker | id/token gen + hashing, KV/DO routing + expiry, rate-limit wrapper, cached star-count proxy |
+| `src/burn-do.js` statistics methods | worker | Aggregate creation integers in independent `BurnPaste` shards through the existing `BURN` binding |
+| `src/lib/{ids,store,ratelimit,stars,statistics}.js` | worker | id/token gen + hashing, legacy KV reads, burn storage, rate limiting, stars, anonymous aggregate count |
+
+## Aggregate paste statistics and history
+
+The statistics counter starts at a documented baseline of zero and counts successful new paste
+storage commits from the deployment that enables it. No trustworthy lifetime total can be
+reconstructed: new burn records are stored in one Durable Object per paste and are erased on
+consumption, explicit deletion, or expiry; older KV records also disappear on TTL expiry or
+deletion. KV enumeration could at most find some remaining legacy records, not consumed or
+expired creations, and would not establish a lifetime count. The statistics store is separate
+from paste storage and does not change encryption, identity, consumption, or deletion behavior.
+
+## Deployment resources
+
+`wrangler.toml.example` is the manual self-hosting template. A deployer creates separate
+production and preview KV namespaces and copies their IDs into the `PASTES` binding. The
+`BurnPaste` binding and `new_sqlite_classes` migration declare the Durable Object class; the
+first deploy creates its namespace, so there is no maintainer-owned DO ID to copy. The native
+`CREATE_RL` rate limiter uses an account-unique positive integer namespace ID in Wrangler
+configuration rather than a separately created resource. Reusing that number in another
+binding in the same account shares counters.
+
+Default `wrangler dev` uses local KV and Durable Object emulation. The native rate-limit
+binding is not emulated, so the Worker fails open locally. Do not use remote development for
+ordinary tests unless writes to real Cloudflare resources are intended. See
+[`SELF_HOSTING.md`](./SELF_HOSTING.md) for account setup, deployment, custom domains, quotas,
+and troubleshooting.
 
 ### The CLI client
 
@@ -103,17 +133,22 @@ security headers from `public/_headers`).
 
 ## Testing
 
-`@cloudflare/vitest-pool-workers` runs every suite in the real `workerd` runtime, so Web
+`@cloudflare/vitest-pool-workers` runs the Worker suites in the real `workerd` runtime, so Web
 Crypto, `CompressionStream`, KV, and the Durable Object behave as in production. The burn
 concurrency test fires 25 simultaneous reads and asserts exactly one `200` and the rest `410`.
 The frozen crypto vectors are regenerated with `node test/genvectors.mjs` (spec-first, never
 hand-edited) and independently cross-checked by a from-scratch Python implementation
 (`tools/verify-vectors.py`).
 
-The CLI has its own suites under `cli/test/`, run as a **second vitest project in plain Node**
-(`npm run test:cli`; `npm test` runs both projects): the SPEC §11 vectors re-verified against
+The CLI has its own suites under `cli/test/`, run in plain Node (`npm run test:cli`; `npm test`
+runs the Worker, DOM, CLI, and tooling suites): the SPEC §11 vectors re-verified against
 Node's WebCrypto, URL parsing, mocked-API round trips (including burn-ordering and wrong-token
 assertions), TUI/QR rendering, and the vendor-drift byte-compare against `public/js/`.
 
-CI (`.github/workflows/ci.yml`) runs lint, a byte-for-byte diff of the regenerated vectors
-against `test/vectors.expected.txt`, and both suites on every push/PR.
+Site identity comes from `public/site-config.json`. The configurator validates all values
+and target files before writes, skips unchanged files, and supports non-writing `--check`
+and `--dry-run` modes. `test-tools/` checks these behaviors with temporary fixtures.
+
+There is no automated browser suite yet. See the manual checks in
+[`CONTRIBUTING.md`](./CONTRIBUTING.md). CI runs lint, frozen-vector reproduction, and the
+Worker, DOM, CLI, and tooling suites.
