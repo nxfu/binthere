@@ -29,14 +29,19 @@ Everything else is negotiable. These are not:
 Requires Node.js ≥ 20 (`.nvmrc` pins 22) and npm. From the `binthere/` directory:
 
 ```bash
-npm install
-npm run dev      # wrangler dev → http://127.0.0.1:8787 (KV + DO + rate limit emulated locally)
-npm test         # vitest: workerd suites, then the CLI suite (cli/, plain Node)
+npm ci
+npm run dev      # wrangler dev → http://127.0.0.1:8787 (local KV + DO storage)
+npm test         # Vitest: workerd, DOM, CLI, and Node tooling suites
+npm run test:tools # site-configuration fixtures in Node
 npm run test:cli # just the CLI suite
 npm run test:watch   # workerd suites, watch mode
 npm run test:coverage  # istanbul coverage (v8 provider can't run inside workerd)
 npm run lint     # ESLint 9 flat config (eslint.config.js)
 ```
+
+Local Wrangler emulates KV and Durable Object storage. The native rate-limit binding is not
+emulated, and the Worker fails open if it is unavailable. Keep ordinary development local;
+`wrangler dev --remote` can connect to real Cloudflare resources.
 
 There is **no frontend build step**: `public/js/*.js` are native ES modules served as-is. The
 Worker under `src/` is bundled by wrangler. In `wrangler dev`, `request.cf` is absent, so
@@ -78,8 +83,8 @@ Beyond the two hard rules, preserve these (see [`SECURITY.md`](./SECURITY.md) an
 ## Tests
 
 Every PR must keep `npm run lint` and `npm test` green (CI enforces both, plus a byte-for-byte
-diff of `node test/genvectors.mjs` output against `test/vectors.expected.txt`). The main suites
-(all run in `workerd`):
+diff of `node test/genvectors.mjs` output against `test/vectors.expected.txt`). The root
+`test/*.test.js` suites run in `workerd`:
 
 | Suite | Covers |
 |---|---|
@@ -90,16 +95,24 @@ diff of `node test/genvectors.mjs` output against `test/vectors.expected.txt`). 
 | `test/ids.test.js` | ID and delete-token generation |
 | `test/burn.test.js` | Backend API + atomic single-consumer burn concurrency + password peek |
 
-The CLI package has its own Node-environment suites under `cli/test/` (frozen vectors re-run in
-plain Node, URL parsing, mocked-API round trips, and a vendor-drift byte-compare that fails if
+DOM-mount suites under `test-dom/` use happy-dom, not `workerd`. The CLI package has its own
+Node-environment suites under `cli/test/` (frozen vectors re-run in plain Node, URL parsing,
+mocked-API round trips, and a vendor-drift byte-compare that fails if
 `cli/vendor/` diverges from `public/js/` — re-align with `node cli/scripts/sync-shared.mjs`).
 
 Add or update tests alongside behavior changes. New rendering paths and any crypto/format change
 **require** test coverage, not just passing existing suites.
 
-**Coverage honesty:** the DOM-driven frontend (`public/js/{app,ui,api,theme,theme-init}.js`) has
-no automated coverage — there is no browser test harness — so changes there need a manual pass
-in `wrangler dev`. Backend, crypto, and the shared pure modules are covered by the suites above.
+### Browser and manual checks
+
+There is no browser automation yet. DOM-mount suites do not run the full browser app.
+Manually exercise create, explicit reveal, password retry, download, and delete in local
+Wrangler at desktop and narrow viewport sizes. Check CSP violations and uncertain destructive
+failures; a network error cannot prove that a consume was rolled back.
+
+Site-configuration tests in `test-tools/` use temporary filesystem fixtures in Node. They
+verify validation, no writes on validation failures, check/preview modes, escaping, and repeat
+runs. CI runs these on the Windows/macOS and Node-version matrix too.
 
 > [!NOTE]
 > **Windows:** after the suite passes you may see `vitest-pool-worker: Unable to remove

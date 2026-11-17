@@ -7,11 +7,14 @@
 # deployment's KV namespace ids (resource identifiers, not secrets) so the
 # one-click Deploy button can clone and provision from it. This .example is the
 # pristine template for manual forks:
-#   1. npm run kv:create          # wrangler kv namespace create PASTES (+ --preview)
-#   2. put the printed ids into wrangler.toml's [[kv_namespaces]] block
-#      (or copy this file over it and fill in the placeholders below)
-#   3. npm run deploy
-# `wrangler dev` works with the placeholder ids (KV is emulated locally).
+#   1. cp wrangler.toml.example wrangler.toml
+#   2. npm run kv:create          # creates PASTES and its preview namespace
+#   3. put the printed ids in [[kv_namespaces]] below
+#   4. choose a unique positive integer for CREATE_RL.namespace_id
+#   5. npm run deploy
+# The BurnPaste SQLite Durable Object namespace is provisioned by the first deploy's
+# migration; it has no account-specific ID to copy here. Local `wrangler dev` emulates
+# KV and Durable Object storage. The native rate-limit binding is not emulated locally.
 
 # Worker script name is "binthere" (→ deploy URL binthere.<subdomain>.workers.dev);
 # the KV namespace keeps the "PASTES" name.
@@ -47,7 +50,9 @@ tag = "v1"
 new_sqlite_classes = [ "BurnPaste" ]
 
 # ── Native rate limiting: paste creation, keyed by client IP ─────────────────
-# Abuse mitigation, not authentication; the code fails open if unavailable.
+# namespace_id must be a positive integer unique within your Cloudflare account.
+# Bindings that reuse it in the account share counters. Abuse mitigation only; fail-open.
+# Replace the example 1001 if another binding in your account already uses it.
 [[ratelimits]]
 name = "CREATE_RL"
 namespace_id = "1001"
