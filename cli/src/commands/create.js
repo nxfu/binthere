@@ -1,8 +1,7 @@
 // create — encrypt locally, POST ciphertext, print the share URL.
 //
 // Lifecycle matches the website exactly: every note is one-time view and
-// deletes after one read, or after 24 hours (bar: true, expire: '1day') — the
-// wire format supports more, but the clients don't expose it.
+// deletes after one read or 24 hours. The API rejects other lifecycles.
 //
 // stdout carries ONLY the share URL (or the --json object), so
 // `binthere create | pbcopy` copies just the link; the delete token, lifecycle
@@ -18,7 +17,6 @@ import { renderQr } from '../qr.js';
 import { resolveSecret } from '../secret.js';
 import { buildShareUrl, DEFAULT_SERVER, normalizeServer } from '../url.js';
 
-export const EXPIRE = '1day';
 export const LIFECYCLE_NOTE = 'deletes after one read, or in 24 hours';
 
 const OPTIONS = {
@@ -90,8 +88,6 @@ export async function cmdCreate(args, io) {
     text,
     password,
     fmt: values.fmt,
-    bar: true,
-    expire: EXPIRE,
   });
 
   const client = new Client(server, io.fetch);
@@ -99,7 +95,7 @@ export async function cmdCreate(args, io) {
   const url = buildShareUrl(server, id, fragment);
 
   if (values.json) {
-    io.stdout(JSON.stringify({ url, id, deletetoken, expire: EXPIRE, burn: true }) + '\n');
+    io.stdout(JSON.stringify({ url, id, deletetoken }) + '\n');
   } else {
     io.stdout(url + '\n');
     io.stderr(`delete token: ${deletetoken}\n`);

@@ -3,19 +3,17 @@ import { describe, it, expect } from 'vitest';
 import { genId, parseId, genDeleteToken, hashToken, verifyToken } from '../src/lib/ids.js';
 
 describe('paste ids', () => {
-  it('generates class-prefixed ids of the right shape and entropy', () => {
-    const k = genId(false);
-    const b = genId(true);
-    expect(k[0]).toBe('k');
+  it('generates burn-prefixed ids of the right shape and entropy', () => {
+    const b = genId();
     expect(b[0]).toBe('b');
-    expect(k.length).toBe(23); // 1 prefix + 22 b64url chars (16 bytes)
-    expect(parseId(k)).toEqual({ cls: 'k', burn: false });
+    expect(b.length).toBe(23); // 1 prefix + 22 b64url chars (16 bytes)
     expect(parseId(b)).toEqual({ cls: 'b', burn: true });
+    expect(parseId('k' + b.slice(1))).toEqual({ cls: 'k', burn: false }); // legacy read id
   });
 
   it('ids are unique across many draws', () => {
     const s = new Set();
-    for (let i = 0; i < 1000; i++) s.add(genId(false));
+    for (let i = 0; i < 1000; i++) s.add(genId());
     expect(s.size).toBe(1000);
   });
 

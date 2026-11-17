@@ -65,9 +65,8 @@ function initCreate() {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); requestCreate(); }
   });
 
-  // Every note is one-time view (bar:true) and auto-deletes within 24h — a
-  // deliberate product choice, not a missing picker. The wire format (and the
-  // CLI/API) supports the full expiry range; the web client does not expose it.
+  // Every note is one-time view and auto-deletes within 24h. The API enforces
+  // this lifecycle for all new pastes; old links remain readable.
   async function submitPaste(password) {
     createBtn.disabled = true;
     const label = sendTxt ? sendTxt.textContent : '';
@@ -91,8 +90,6 @@ function initCreate() {
         text: $('#editor').value,
         password,
         fmt,
-        bar: true,
-        expire: '1day',
       });
       const { id, deletetoken } = await createPaste(body);
       const url = `${location.origin}/p/${id}#${fragment}`;

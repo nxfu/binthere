@@ -146,7 +146,7 @@ export async function gunzip(bytes, maxOut = MAX_PLAINTEXT) {
  * object to POST (server adds meta.created + delete-token hash) and `fragment`
  * is the base64url URL-fragment secret F — which MUST stay client-side.
  */
-export async function encryptPaste({ text, password = '', fmt = 'plaintext', bar = false, expire = '1week' }) {
+export async function encryptPaste({ text, password = '', fmt = 'plaintext' }) {
   const data = utf8(text);
   if (data.length > MAX_PLAINTEXT) throw new Error('paste too large');
 
@@ -173,7 +173,7 @@ export async function encryptPaste({ text, password = '', fmt = 'plaintext', bar
     iter,
     comp,
     fmt,
-    bar,
+    bar: true,
     ivc: b64urlFromBytes(ivc),
     ivw: b64urlFromBytes(ivw),
     skdf: usePassword ? b64urlFromBytes(salt) : '',
@@ -191,7 +191,7 @@ export async function encryptPaste({ text, password = '', fmt = 'plaintext', bar
     ct: b64urlFromBytes(ct),
     wk: b64urlFromBytes(wk),
     adata,
-    meta: { expire },
+    meta: { expire: '1day' },
   };
   return { body, fragment: b64urlFromBytes(F) };
 }

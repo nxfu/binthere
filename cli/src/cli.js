@@ -44,7 +44,7 @@ create flags:
   --password             prompt for a password (hidden)
   --password-env <VAR>   read the password from an environment variable
   -q, --qr               also print a scannable QR code (to stderr)
-  -j, --json             print {url, id, deletetoken, expire, burn} as JSON
+  -j, --json             print {url, id, deletetoken} as JSON
 get flags:
   -o, --out <path>       write plaintext to a file instead of stdout
   -y, --yes              skip the "reading destroys this note" confirmation

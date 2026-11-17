@@ -6,7 +6,6 @@
 // password leaves the paste intact.
 import { describe, it, expect } from 'vitest';
 import { b64urlFromBytes, randomBytes, sha256Hex, utf8 } from '../vendor/bytes.js';
-import { encryptPaste } from '../vendor/crypto.js';
 import { validatePaste, FormatError } from '../vendor/format.js';
 import { run } from '../src/cli.js';
 import { UsageError } from '../src/errors.js';
@@ -36,7 +35,8 @@ function makeServer() {
         }
         throw e;
       }
-      const id = (clean.adata.bar ? 'b' : 'k') + b64urlFromBytes(randomBytes(16));
+      if (!clean.adata.bar || clean.meta.expire !== '1day') return json(400, { error: 'unsupported lifecycle' });
+      const id = 'b' + b64urlFromBytes(randomBytes(16));
       const deletetoken = b64urlFromBytes(randomBytes(32));
       clean.meta.created = 1234567890;
       store.set(id, { paste: clean, dth: await sha256Hex(utf8(deletetoken)) });
@@ -114,14 +114,25 @@ function makeIo({
   return { io, out, err, text: { out: () => out.join(''), err: () => err.join('') } };
 }
 
-/** Seed the mock store with an old-style non-burn ("k…") paste via the API. */
+/** Seed a pre-existing v1 non-burn paste directly to cover legacy read support. */
 async function seedLegacyPaste(server, text) {
-  const { body, fragment } = await encryptPaste({
-    text, password: '', fmt: 'plaintext', bar: false, expire: '1week',
+  expect(text).toBe('legacy link');
+  const id = 'k' + b64urlFromBytes(randomBytes(16));
+  const fragment = b64urlFromBytes(Uint8Array.from({ length: 32 }, (_, i) => i));
+  const adata = {
+    alg: 'A256GCM', kdf: 'hkdf', iter: 0, comp: 'none', fmt: 'plaintext', bar: false,
+    ivc: 'ERERERERERERERER', ivw: 'IiIiIiIiIiIiIiIi', skdf: '',
+  };
+  server.store.set(id, {
+    paste: {
+      v: 1,
+      ct: b64urlFromBytes(Buffer.from('51541cd10292619073e3adbab99d55c8839d57470ec512ba5d5edc785ab314316870323b42928ccf3cf019e7d978e06397fe19127efa', 'hex')),
+      wk: b64urlFromBytes(Buffer.from('07adc270949ba48117e0553655023ae11d326766c13f9dc06b05a69085f5306bd0de61efac880cc08a63ac800daf2a39', 'hex')),
+      adata,
+      meta: { expire: '1week', created: 1234567890 },
+    },
+    dth: await sha256Hex(utf8('legacy-delete-token')),
   });
-  const res = await server.fetchImpl(`${SERVER}/api/paste`, { method: 'POST', body: JSON.stringify(body) });
-  const { id } = await res.json();
-  expect(id.startsWith('k')).toBe(true);
   return `${SERVER}/p/${id}#${fragment}`;
 }
 
@@ -155,9 +166,7 @@ describe('create → get round trip', () => {
     const a = makeIo({ stdin: 'json me', server });
     expect(await run(['create', '--json'], a.io)).toBe(0);
     const parsed = JSON.parse(a.text.out());
-    expect(Object.keys(parsed).sort()).toEqual(['burn', 'deletetoken', 'expire', 'id', 'url']);
-    expect(parsed.expire).toBe('1day');
-    expect(parsed.burn).toBe(true);
+    expect(Object.keys(parsed).sort()).toEqual(['deletetoken', 'id', 'url']);
     expect(a.text.err()).toBe('');
   });
 
@@ -166,11 +175,11 @@ describe('create → get round trip', () => {
     const url = await seedLegacyPaste(server, 'legacy link');
     const a = makeIo({ server });
     expect(await run(['get', url], a.io)).toBe(0);
-    expect(a.text.out()).toBe('legacy link');
+    expect(a.text.out()).toBe('binthere vector — zero knowledge ✓');
     // Non-destructive: a second read still works.
     const b = makeIo({ server });
     expect(await run(['get', url], b.io)).toBe(0);
-    expect(b.text.out()).toBe('legacy link');
+    expect(b.text.out()).toBe('binthere vector — zero knowledge ✓');
   });
 
   it('the fragment secret is never sent to the server', async () => {

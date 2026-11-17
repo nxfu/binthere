@@ -3,9 +3,8 @@
 // The stored delete-token hash (`dth`) is kept alongside the paste and never
 // returned to a reader. See SPEC.md §7–§9.
 
-import { EXPIRE_SECONDS } from '../../public/js/format.js';
-
 export const MAX_BODY = 4 * 1024 * 1024; // 4 MiB request-body cap
+export const PASTE_TTL_SECONDS = 86400;
 
 // SQLite-backed Durable Object storage caps a serialized value at ~2 MB — below
 // what MAX_CT_B64 (3,000,000 b64url chars) admits. Burn records are capped with
@@ -14,23 +13,7 @@ export const MAX_BODY = 4 * 1024 * 1024; // 4 MiB request-body cap
 // clients stay far under this (1 MiB plaintext → ~1.4 M b64url chars).
 export const MAX_BURN_RECORD = 1900000;
 
-export function ttlSeconds(expire) {
-  return EXPIRE_SECONDS[expire] ?? 0;
-}
-
-// ── KV (normal pastes) ───────────────────────────────────────────────────────
-
-// Best-effort only: KV is eventually consistent and check-then-put is not
-// atomic, so this cannot guarantee uniqueness — the 128-bit CSPRNG id does.
-// Kept as a cheap belt-and-braces read, not a correctness mechanism.
-export async function kvExists(env, id) {
-  return (await env.PASTES.get(id)) !== null;
-}
-
-export async function kvPut(env, id, paste, dth, ttl) {
-  const opts = ttl > 0 ? { expirationTtl: ttl } : {};
-  await env.PASTES.put(id, JSON.stringify({ p: paste, dth }), opts);
-}
+// ── KV (read/delete compatibility for existing v1 reusable pastes) ───────────
 
 /** Returns { p, dth } or null. Corrupt records are treated as missing. */
 export async function kvGet(env, id) {

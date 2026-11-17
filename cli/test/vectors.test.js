@@ -79,10 +79,12 @@ describe('frozen test vectors (plain Node, vendored modules)', () => {
 });
 
 describe('round-trips in Node (gzip via native CompressionStream)', () => {
-  it('no-password paste round-trips and emits a valid format-v1 body', async () => {
+  it('no-password paste round-trips and uses the supported lifecycle', async () => {
     const text = 'hello from the CLI runtime';
     const { body, fragment } = await encryptPaste({ text });
     expect(() => validatePaste(body)).not.toThrow();
+    expect(body.adata.bar).toBe(true);
+    expect(body.meta.expire).toBe('1day');
     expect((await decryptPaste({ paste: body, fragment })).text).toBe(text);
   });
 
