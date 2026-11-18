@@ -36,6 +36,10 @@ The migration replaces the legacy non-production trigger; it does not deploy cod
 to production, migrate production Durable Objects, or move production traffic.
 Keep the production trigger restricted to `main`.
 
+The `nxfu/binthere` Worker completed this switch on 2026-11-18 with maintainer
+approval. The original production deployment was retained. New pushes use the
+Preview build and deploy commands above.
+
 Wrangler is pinned to `4.158.0`, which supports Previews and reports their URLs to
 Workers Builds. The minimum supported version is 4.135.0. `preview_urls = true`
 keeps the workers.dev preview host enabled. The production custom domain is not
