@@ -1,5 +1,6 @@
 # Deployments remain in native Cloudflare Builds. This job only reads Preview
-# metadata and reports a verified URL because native comments failed in rollout.
+# metadata, reports a verified URL, and keeps that concise comment instead of
+# Cloudflare's native deployment message.
 name: Preview URL
 
 on:

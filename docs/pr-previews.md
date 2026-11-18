@@ -14,17 +14,16 @@ New pushes update that branch's Preview; each deployment also has its own
 immutable URL. Different branches keep independent code and data. Deployments
 remain in native Cloudflare Builds; GitHub Actions has no deployment credential.
 
-Cloudflare documents automatic PR comments, but during the 2026-11-18 rollout
-native check runs succeeded without posting/updating a URL comment, including on
-a newly opened PR. The `Preview URL` workflow is a reporting-only fallback. It
+Cloudflare's native deployment comments arrived late during initial verification.
+This repository prefers the concise, verified GitHub Actions message instead.
+The `Preview URL` workflow handles reporting only. It
 reads Preview metadata, verifies `PREVIEW_COMMIT` matches the PR head and the URL
 returns HTTP 200, then creates a GitHub Deployment and updates one bot comment.
 It never writes to Cloudflare. It requires a GitHub Actions secret named
 `CLOUDFLARE_PREVIEW_READ_TOKEN`, with **Workers Tail Read** for the target account
 (or equivalent metadata-read access scoped to the `binthere` Worker). Do not use
 the deployment token. Repository secrets are not exposed to fork PRs, and the
-workflow runs only for same-repository branches. Remove this fallback if native
-comment reporting is restored and verified.
+workflow runs only for same-repository branches.
 
 The preferred PR message is the concise GitHub Actions comment. After posting it,
 the reporter removes deployment comments authored by

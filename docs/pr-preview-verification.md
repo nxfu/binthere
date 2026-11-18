@@ -73,9 +73,10 @@ DO alarm expiry passed in the real workerd test suite. The application's full
 24-hour live paste expiry was not waited out or shortened. The live short-TTL
 check was for isolated KV storage, not the current DO paste lifecycle.
 
-Native Cloudflare GitHub checks succeeded, but native URL comments did not appear
-or update during verification, including on a fresh non-draft PR. The
-reporting-only fallback now works in GitHub Actions: the maintainer created the
+Native Cloudflare GitHub checks succeeded; native URL comments arrived after the
+initial verification. The repository now prefers the concise GitHub Actions
+comment, with duplicate Cloudflare comments removed after the replacement exists.
+The reporting-only workflow works in GitHub Actions: the maintainer created the
 Workers Tail Read token and saved it securely as
 `CLOUDFLARE_PREVIEW_READ_TOKEN`. The
 [reporting run](https://github.com/nxfu/binthere/actions/runs/44360808135) passed,
