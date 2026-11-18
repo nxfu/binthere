@@ -152,6 +152,16 @@ limiter is unavailable, requests are allowed rather than blocked. Limits are doc
 approximate. The IP is used as the rate-limit key; binthere does not create a profile or retain
 a history of activity for that IP. `wrangler dev` does not emulate the binding.
 
+### Uncertain destructive outcomes
+
+HTTP 200 headers alone do not prove that a complete consume response reached the client.
+Network loss or timeout can occur after the server removes the note. Browser consume errors
+retain uncertainty for partial successful bodies, 5xx, and lost responses; known rejection
+statuses remain distinct. Consume is never automatically retried. Check with the sender
+before another read, which can return an already-consumed result. Creation/deletion can also
+complete despite response loss. Creation retains editor content, but a deliberate retry may
+create another copy that expires normally.
+
 ### Self-hosted deployment
 
 Every self-hoster controls the code and account serving their instance. Visitors must trust the

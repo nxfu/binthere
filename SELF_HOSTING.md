@@ -108,7 +108,8 @@ apply configuration automatically.
 
 The domain printed in `public/opengraph.png` remains manual artwork. Edit
 `tools/opengraph.html` and run `node tools/render-og.mjs --browser /path/to/chrome` with your
-installed Chrome/Chromium path to replace it. All values in `public/site-config.json` are public, not secrets.
+installed Chrome/Chromium path to replace it. The README screenshot is a product illustration,
+not runtime configuration. All values in `public/site-config.json` are public, not secrets.
 
 ## 4. Run locally
 
@@ -207,6 +208,8 @@ npm ci
 npm run lint
 npm test
 npm run configure-site -- --check
+npx playwright install chromium
+npm run test:e2e
 npm run deploy
 ```
 

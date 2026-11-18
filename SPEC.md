@@ -318,7 +318,8 @@ Legacy v1 `meta.expire` values map to a TTL in seconds. New API requests are res
 The site also serves `GET /api/stars`, which answers `{ "stars": <integer> }` from the last
 successful GitHub star-count snapshot stored in KV (`503` before the first successful refresh
 or when the snapshot cannot be read). A Cron Trigger fetches the repository count once daily at
-00:00 UTC and writes it only when it differs from the stored count. The endpoint itself never
+00:00 UTC with an eight-second header/body deadline, preserves the old snapshot on failure,
+and writes it only when the valid count differs. The endpoint itself never
 calls GitHub. It exists for the topbar badge, touches no paste state, and is **not part of this
 protocol** — a conforming client never calls it.
 
