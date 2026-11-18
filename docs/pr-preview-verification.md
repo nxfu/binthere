@@ -74,14 +74,15 @@ DO alarm expiry passed in the real workerd test suite. The application's full
 check was for isolated KV storage, not the current DO paste lifecycle.
 
 Native Cloudflare GitHub checks succeeded, but native URL comments did not appear
-or update during verification, including on a fresh non-draft PR. The reporting
-fallback was tested locally, but its GitHub Actions run currently fails because
-`CLOUDFLARE_PREVIEW_READ_TOKEN` has not been configured. The existing Cloudflare
-OAuth connection returned 403 for token management and lacks
-`account-api-tokens.write`. Finishing automatic URL reporting requires either
-securely setting the dedicated metadata-read repository secret, or reconnecting
-with token-management permission so it can be provisioned. Do not substitute the
-production deployment credential.
+or update during verification, including on a fresh non-draft PR. The
+reporting-only fallback now works in GitHub Actions: the maintainer created the
+Workers Tail Read token and saved it securely as
+`CLOUDFLARE_PREVIEW_READ_TOKEN`. The
+[reporting run](https://github.com/nxfu/binthere/actions/runs/44360808135) passed,
+created a successful GitHub Deployment for the exact deployed PR commit, and
+posted the [automated Preview comment](https://github.com/nxfu/binthere/pull/17#issuecomment-6990883229).
+No token-management permission or production deployment credential was added to
+GitHub Actions. The earlier missing-secret failure is resolved.
 
 The account's npm 10 failed twice while replacing Wrangler in PR #16's existing
 dependency tree (`edgesOut` error). Installing the pinned tool in a separate
