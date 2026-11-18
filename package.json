@@ -18,6 +18,9 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "preview:prepare": "node tools/prepare-preview.mjs",
+    "preview": "npm run preview:prepare && wrangler preview --config .wrangler/preview/wrangler.json --ignore-base-config",
+    "test:preview": "node tools/check-preview-safety.mjs",
     "test": "vitest run && vitest run --config vitest.dom.config.js && vitest run --config cli/vitest.config.js",
     "test:dom": "vitest run --config vitest.dom.config.js",
     "test:cli": "vitest run --config cli/vitest.config.js",
@@ -34,6 +37,6 @@
     "globals": "^15.15.0",
     "happy-dom": "^20.11.0",
     "vitest": "^4.1.10",
-    "wrangler": "^4.111.0"
+    "wrangler": "4.158.0"
   }
 }

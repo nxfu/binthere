@@ -131,6 +131,7 @@ needed for development.
 | `npm run lint` | ESLint 9 (flat config) |
 | `npm run kv:create` | Create the `PASTES` KV namespace (+ preview) |
 | `npm run deploy` | Deploy to Cloudflare |
+| `npm run preview` | Deploy an isolated branch Preview ([setup and lifecycle](docs/pr-previews.md)) |
 
 CI runs lint, a byte-for-byte test-vector diff, and the full suite.
 

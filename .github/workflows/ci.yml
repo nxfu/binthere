@@ -24,6 +24,7 @@ jobs:
       # not secrets); the workerd test pool reads it directly.
       - run: npm ci
       - run: npm run lint
+      - run: npm run test:preview
       # Confirm the pinned crypto vectors still reproduce byte-for-byte (SPEC.md §11):
       # regenerate and diff against the committed test/vectors.expected.txt.
       - run: node test/genvectors.mjs | diff -u test/vectors.expected.txt -
