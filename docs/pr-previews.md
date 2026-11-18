@@ -10,10 +10,21 @@ Each branch has a stable URL, for example:
 https://infra-isolated-pr-previews-binthere.nxfu.workers.dev
 ```
 
-Cloudflare Builds posts the URL and deployment status on the PR. New pushes update
-that branch's Preview; each deployment also has its own immutable URL. Different
-branches keep independent code and data. No deployment workflow or Cloudflare
-credential is added to GitHub Actions.
+New pushes update that branch's Preview; each deployment also has its own
+immutable URL. Different branches keep independent code and data. Deployments
+remain in native Cloudflare Builds; GitHub Actions has no deployment credential.
+
+Cloudflare documents automatic PR comments, but during the 2026-11-18 rollout
+native check runs succeeded without posting/updating a URL comment, including on
+a newly opened PR. The `Preview URL` workflow is a reporting-only fallback. It
+reads Preview metadata, verifies `PREVIEW_COMMIT` matches the PR head and the URL
+returns HTTP 200, then creates a GitHub Deployment and updates one bot comment.
+It never writes to Cloudflare. It requires a GitHub Actions secret named
+`CLOUDFLARE_PREVIEW_READ_TOKEN`, with **Workers Tail Read** for the target account
+(or equivalent metadata-read access scoped to the `binthere` Worker). Do not use
+the deployment token. Repository secrets are not exposed to fork PRs, and the
+workflow runs only for same-repository branches. Remove this fallback if native
+comment reporting is restored and verified.
 
 ## Cloudflare Builds settings
 
@@ -59,7 +70,7 @@ Preview DO binding; KV is deliberately supplied only after preparation.
 | `BURN` Durable Objects | A separate native Preview namespace per branch, including the anonymous statistics shards. No `script_name` points to production. State survives updates to the same Preview. |
 | `CREATE_RL` | Separate namespace ID derived from the Worker/branch hash, with the same 30 requests per 60 seconds limit. |
 | Static Assets | Uploaded from the branch being built; the same CSP applies. |
-| Variables | Only public `GITHUB_REPOSITORY` is passed to the Preview. |
+| Variables | Public `GITHUB_REPOSITORY` and the deployed Git SHA (`PREVIEW_COMMIT`) only. |
 | Runtime secrets | None needed. `--ignore-base-config` prevents accidental inheritance of future dashboard Base secrets/bindings. |
 | Scheduled triggers | Cloudflare does not invoke cron handlers on Previews. Production's daily star refresh is unchanged. |
 
@@ -125,6 +136,8 @@ a PR alone does not delete its branch. This repository does not automatically
 delete branches on merge, so retained branches retain their Previews. Delete a
 finished branch when its Preview is no longer needed, or explicitly delete the
 Preview from the dashboard. No existing branches are deleted during setup.
+The reporting workflow marks its GitHub Deployments inactive when the PR closes;
+that does not delete Cloudflare resources.
 
 Deleting a Preview deletes its DO namespace and deployments. Its external KV
 namespace is retained; Cloudflare does not delete account-level KV resources with

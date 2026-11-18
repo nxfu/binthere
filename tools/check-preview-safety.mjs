@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { previewConfig, previewIdentity } from './prepare-preview.mjs';
+import { verifiedPreviewURL } from './report-preview.mjs';
 
 const prod = 'a'.repeat(32), dev = 'b'.repeat(32), isolated = 'c'.repeat(32);
 const raw = {
@@ -32,4 +33,13 @@ for (const value of [prod, dev, 'must-not-inherit', 'production.example', 'crons
 // Branches which collapse to the same URL slug must still have distinct storage.
 assert.notDeepEqual(previewIdentity('binthere', 'feature/a'), previewIdentity('binthere', 'feature-a'));
 assert.deepEqual(previewIdentity('binthere', 'feature/a'), previewIdentity('binthere', 'feature/a'));
+const commit = 'd'.repeat(40);
+const preview = { urls: ['https://feature-a-binthere.nxfu.workers.dev'] };
+const deployment = { env: { PREVIEW_COMMIT: { text: commit } } };
+assert.equal(verifiedPreviewURL(preview, deployment, commit), preview.urls[0]);
+assert.equal(verifiedPreviewURL(preview, deployment, 'e'.repeat(40)), null);
+for (const address of ['https://binthere.nxfu.workers.dev', 'https://binthere.gaury.dev', 'https://evil.example', 'https://feature-a-binthere.nxfu.workers.dev/#key']) {
+  assert.equal(verifiedPreviewURL({ urls: [address] }, deployment, commit), null);
+}
+assert.equal(previewConfig(raw, 'feature/a', isolated, '/project', commit).previews.vars.PREVIEW_COMMIT, commit);
 console.log('Preview safety checks passed: production bindings excluded, branch storage distinct.');

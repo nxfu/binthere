@@ -21,7 +21,7 @@ export function previewIdentity(worker, branch) {
   };
 }
 
-export function previewConfig(raw, branch, namespaceId, root) {
+export function previewConfig(raw, branch, namespaceId, root, commit) {
   const identity = previewIdentity(raw.name, branch);
   if (!/^[a-f0-9]{32}$/.test(namespaceId)
       || raw.kv_namespaces?.some(ns => ns.id === namespaceId || ns.preview_id === namespaceId)) {
@@ -39,7 +39,10 @@ export function previewConfig(raw, branch, namespaceId, root) {
     migrations: raw.migrations,
     observability: raw.observability,
     previews: {
-      vars: { GITHUB_REPOSITORY: raw.vars?.GITHUB_REPOSITORY ?? 'nxfu/binthere' },
+      vars: {
+        GITHUB_REPOSITORY: raw.vars?.GITHUB_REPOSITORY ?? 'nxfu/binthere',
+        ...(commit ? { PREVIEW_COMMIT: commit } : {}),
+      },
       kv_namespaces: [{ binding: 'PASTES', id: namespaceId }],
       durable_objects: { bindings: [{ name: 'BURN', class_name: 'BurnPaste' }] },
       ratelimits: [{ name: 'CREATE_RL', namespace_id: identity.rateLimitId, simple: { limit: 30, period: 60 } }],
@@ -75,7 +78,9 @@ async function prepare() {
     namespace ??= find();
   }
   if (!namespace) throw new Error('Preview namespace was not provisioned.');
-  const config = previewConfig(rawConfig, branch, namespace.id, root);
+  const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+  if (!/^[a-f0-9]{40}$/.test(commit)) throw new Error('Could not determine the deployed commit.');
+  const config = previewConfig(rawConfig, branch, namespace.id, root, commit);
   const output = resolve(root, '.wrangler/preview/wrangler.json');
   await mkdir(dirname(output), { recursive: true });
   await writeFile(output, `${JSON.stringify(config, null, 2)}\n`);
