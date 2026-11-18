@@ -8,6 +8,7 @@
 name = "binthere"
 main = "src/index.js"
 compatibility_date = "2025-10-11"
+preview_urls = true
 
 # ── Static assets ────────────────────────────────────────────────────────────
 # The frontend lives in public/. The Worker runs first only for /api/*; every
@@ -56,3 +57,15 @@ crons = ["0 0 * * *"]
 
 [observability]
 enabled = true
+
+# Native Worker Previews. Deploy with `npm run preview`, never versions upload.
+# preview:prepare generates .wrangler/preview/wrangler.json with a dedicated KV
+# namespace and rate-limit namespace per branch. No production settings, secrets,
+# routes, or cron triggers are copied into that generated configuration.
+# PASTES is deliberately absent here: bypassing preparation cannot access KV.
+[previews.vars]
+GITHUB_REPOSITORY = "nxfu/binthere"
+
+[[previews.durable_objects.bindings]]
+name = "BURN"
+class_name = "BurnPaste"

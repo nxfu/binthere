@@ -18,6 +18,7 @@
 name = "binthere"
 main = "src/index.js"
 compatibility_date = "2025-10-11"
+preview_urls = true
 
 # ── Static assets ────────────────────────────────────────────────────────────
 # The frontend lives in public/. The Worker runs first only for /api/*; every
@@ -66,3 +67,12 @@ crons = ["0 0 * * *"]
 
 [observability]
 enabled = true
+
+# `npm run preview` provisions separate KV/rate-limit namespaces per branch and
+# generates the actual Preview config. Never use versions upload for isolation.
+[previews.vars]
+GITHUB_REPOSITORY = "nxfu/binthere"
+
+[[previews.durable_objects.bindings]]
+name = "BURN"
+class_name = "BurnPaste"
