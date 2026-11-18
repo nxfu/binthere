@@ -26,6 +26,16 @@ the deployment token. Repository secrets are not exposed to fork PRs, and the
 workflow runs only for same-repository branches. Remove this fallback if native
 comment reporting is restored and verified.
 
+The preferred PR message is the concise GitHub Actions comment. After posting it,
+the reporter removes deployment comments authored by
+`cloudflare-workers-and-pages[bot]` for this Worker. It preserves comments from
+people, other bots, and other Workers. An `issue_comment` handler also removes
+late native comments once the Actions replacement exists. GitHub requires this
+event's workflow on the default branch, so late-comment cleanup starts after the
+implementation is merged. This handler checks out only default-branch code and
+uses no Cloudflare token. Builds, checks, deployment history, and native Preview
+cleanup are unaffected.
+
 ## Cloudflare Builds settings
 
 For the Worker connected to `nxfu/binthere`:

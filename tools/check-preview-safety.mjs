@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { previewConfig, previewIdentity } from './prepare-preview.mjs';
-import { verifiedPreviewURL } from './report-preview.mjs';
+import { verifiedPreviewURL, isCloudflarePreviewComment, removeCloudflarePreviewComments } from './report-preview.mjs';
 
 const prod = 'a'.repeat(32), dev = 'b'.repeat(32), isolated = 'c'.repeat(32);
 const raw = {
@@ -42,4 +42,24 @@ for (const address of ['https://binthere.nxfu.workers.dev', 'https://binthere.ga
   assert.equal(verifiedPreviewURL({ urls: [address] }, deployment, commit), null);
 }
 assert.equal(previewConfig(raw, 'feature/a', isolated, '/project', commit).previews.vars.PREVIEW_COMMIT, commit);
+const cloudflare = { id: 1, user: { login: 'cloudflare-workers-and-pages[bot]' }, body: 'Preview: https://feature-a-binthere.nxfu.workers.dev' };
+const actions = { id: 2, user: { login: 'github-actions[bot]' }, body: '<!-- binthere-preview -->\nPreview verified.' };
+const otherWorker = { ...cloudflare, id: 3, body: 'Preview: https://feature-a-other.nxfu.workers.dev' };
+const human = { ...cloudflare, id: 4, user: { login: 'nxfu' } };
+assert.equal(isCloudflarePreviewComment(cloudflare), true);
+assert.equal(isCloudflarePreviewComment({ ...cloudflare, body: 'Logs: https://dash.cloudflare.com/workers/services/view/binthere/production/builds/123' }), true);
+for (const comment of [actions, otherWorker, human, null]) assert.equal(isCloudflarePreviewComment(comment), false);
+const calls = [];
+const github = async (path, method = 'GET') => {
+  calls.push({ path, method });
+  return method === 'GET' ? [cloudflare, actions, otherWorker, human] : null;
+};
+await removeCloudflarePreviewComments(github, 17);
+assert.deepEqual(calls.filter(c => c.method === 'DELETE'), [{ path: '/issues/comments/1', method: 'DELETE' }]);
+const withoutReplacement = [];
+await removeCloudflarePreviewComments(async (path, method = 'GET') => {
+  withoutReplacement.push({ path, method });
+  return [cloudflare];
+}, 17);
+assert.ok(withoutReplacement.every(c => c.method === 'GET'));
 console.log('Preview safety checks passed: production bindings excluded, branch storage distinct.');

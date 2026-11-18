@@ -6,19 +6,20 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened, closed]
+  issue_comment:
+    types: [created, edited]
 
 permissions:
   contents: read
   pull-requests: write
   deployments: write
 
-concurrency:
-  group: preview-url-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-
 jobs:
   report:
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    concurrency:
+      group: preview-url-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -34,3 +35,28 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           CLOUDFLARE_ACCOUNT_ID: d297813cb4954767924aa9e12283a814
           CLOUDFLARE_PREVIEW_READ_TOKEN: ${{ secrets.CLOUDFLARE_PREVIEW_READ_TOKEN }}
+
+  clean-cloudflare-comment:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      github.event.comment.user.login == 'cloudflare-workers-and-pages[bot]'
+    concurrency:
+      group: preview-comments-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - run: node tools/report-preview.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

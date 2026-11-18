@@ -5,6 +5,29 @@ import { fileURLToPath } from 'node:url';
 
 const marker = '<!-- binthere-preview -->';
 
+export function isCloudflarePreviewComment(comment) {
+  return comment?.user?.login === 'cloudflare-workers-and-pages[bot]'
+    && typeof comment.body === 'string'
+    && (comment.body.includes('-binthere.nxfu.workers.dev')
+      || comment.body.includes('/workers/services/view/binthere/'));
+}
+
+export async function removeCloudflarePreviewComments(github, number) {
+  const comments = [];
+  for (let page = 1; ; page++) {
+    const batch = await github(`/issues/${number}/comments?per_page=100&page=${page}`);
+    comments.push(...batch);
+    if (batch.length < 100) break;
+  }
+  // Keep Cloudflare's link until our replacement is actually present. Collect
+  // all pages before deleting so removals cannot shift pagination underneath us.
+  if (!comments.some(c => c.user.login === 'github-actions[bot]' && c.body.includes(marker))) return;
+  for (const comment of comments.filter(isCloudflarePreviewComment)) {
+    await github(`/issues/comments/${comment.id}`, 'DELETE');
+    console.log(`Removed duplicate Cloudflare deployment comment ${comment.id}.`);
+  }
+}
+
 export function verifiedPreviewURL(preview, deployment, commit) {
   if (deployment?.env?.PREVIEW_COMMIT?.text !== commit) return null;
   const address = preview?.urls?.find(value => {
@@ -18,12 +41,7 @@ export function verifiedPreviewURL(preview, deployment, commit) {
 
 async function report() {
   const event = JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8'));
-  const pr = event.pull_request;
-  if (!pr || pr.base.ref !== 'main' || pr.head.repo?.full_name !== process.env.GITHUB_REPOSITORY) {
-    throw new Error('Reporting supports same-repository PRs against main only.');
-  }
   const repo = process.env.GITHUB_REPOSITORY;
-  const environment = `preview/pr-${pr.number}`;
   const github = async (path, method = 'GET', body) => {
     const response = await fetch(`https://api.github.com/repos/${repo}${path}`, {
       method, headers: {
@@ -34,14 +52,29 @@ async function report() {
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(20000),
     });
+    // Another cleanup job may already have removed the same bot comment.
+    if (method === 'DELETE' && response.status === 404) return null;
     if (!response.ok) throw new Error(`GitHub ${method} failed: HTTP ${response.status}`);
     return response.status === 204 ? null : response.json();
   };
+  // issue_comment uses trusted default-branch code and no Cloudflare secret.
+  // It catches native comments posted or edited after the reporting job ends.
+  if (event.comment) {
+    if (!event.issue?.pull_request || !isCloudflarePreviewComment(event.comment)) return;
+    await removeCloudflarePreviewComments(github, event.issue.number);
+    return;
+  }
+  const pr = event.pull_request;
+  if (!pr || pr.base.ref !== 'main' || pr.head.repo?.full_name !== repo) {
+    throw new Error('Reporting supports same-repository PRs against main only.');
+  }
+  const environment = `preview/pr-${pr.number}`;
   if (event.action === 'closed') {
     const deployments = await github(`/deployments?environment=${encodeURIComponent(environment)}&per_page=100`);
     for (const deployment of deployments) {
       await github(`/deployments/${deployment.id}/statuses`, 'POST', { state: 'inactive' });
     }
+    await removeCloudflarePreviewComments(github, pr.number);
     console.log('GitHub Preview deployments marked inactive. Native branch-deletion cleanup is unchanged.');
     return;
   }
@@ -107,6 +140,7 @@ async function report() {
     await github(`/deployments/${deployment.id}/statuses`, 'POST', { state: 'failure', description: 'Preview URL reporting failed; inspect workflow logs' });
     throw error;
   }
+  await removeCloudflarePreviewComments(github, pr.number);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await report();
