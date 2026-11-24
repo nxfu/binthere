@@ -22,8 +22,8 @@
             property="og:description"
             content="Encrypted, zero-knowledge pastebin. Your text is encrypted in your browser; the server never sees it."
         />
-        <meta property="og:url" content="https://binthere.gaury.dev/" />
-        <meta property="og:image" content="https://binthere.gaury.dev/opengraph.png" />
+        <meta property="og:url" content="https://binthere.gaury.dev/" data-site="canonical-url" />
+        <meta property="og:image" content="https://binthere.gaury.dev/opengraph.png" data-site="opengraph-image" />
         <meta property="og:image:width" content="1200" />
         <meta property="og:image:height" content="630" />
         <meta name="twitter:card" content="summary_large_image" />
@@ -53,7 +53,7 @@
         <aside class="announce" id="announce" aria-label="Announcement" hidden>
             <a
                 class="announce-link"
-                href="https://gaury.dev/blog/because-i-dont-trust-pastebins-either"
+                href="https://gaury.dev/blog/because-i-dont-trust-pastebins-either" data-site="announcement-url"
                 rel="noopener"
                 target="_blank"
             >
@@ -103,7 +103,7 @@
                 <a
                     class="gh"
                     id="gh-link"
-                    href="https://github.com/nxfu/binthere"
+                    href="https://github.com/nxfu/binthere" data-site="repository-url"
                     rel="noopener"
                     target="_blank"
                     aria-label="binthere on GitHub"
@@ -651,13 +651,13 @@
                 </p>
                 <p class="foot-links" id="foot-links">
                     <a
-                        href="https://github.com/nxfu/binthere"
+                        href="https://github.com/nxfu/binthere" data-site="repository-url"
                         rel="noopener"
                         target="_blank"
                         >Source</a
                     >
                     <a
-                        href="https://github.com/nxfu/binthere/blob/main/SECURITY.md"
+                        href="https://github.com/nxfu/binthere/blob/main/SECURITY.md" data-site="security-policy-url"
                         rel="noopener"
                         target="_blank"
                         >Threat Model</a
@@ -665,7 +665,7 @@
                     <a href="/.well-known/security.txt" rel="noopener"
                         >Security</a
                     >
-                    <a href="https://gaury.dev" rel="noopener"
+                    <a href="https://gaury.dev/" rel="noopener" data-site="developer-url"
                         >Developer</a
                     >
                 </p>
