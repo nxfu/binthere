@@ -146,7 +146,7 @@ export async function gunzip(bytes, maxOut = MAX_PLAINTEXT) {
  * object to POST (server adds meta.created + delete-token hash) and `fragment`
  * is the base64url URL-fragment secret F — which MUST stay client-side.
  */
-export async function encryptPaste({ text, password = '', fmt = 'plaintext' }) {
+export async function encryptPaste({ text, password = '', fmt = 'plaintext', views, ttlSeconds }) {
   const data = utf8(text);
   if (data.length > MAX_PLAINTEXT) throw new Error('paste too large');
 
@@ -186,12 +186,27 @@ export async function encryptPaste({ text, password = '', fmt = 'plaintext' }) {
   const contentKey = await importAesKey(CEK);
   const ct = await aesGcmEncrypt(contentKey, ivc, payload, aad);
 
+  // Custom fork: callers may request a free-form view budget / TTL, carried
+  // in meta (NOT in adata, so the frozen AAD and test vectors are untouched).
+  // With neither supplied we emit the legacy shape exactly as upstream did,
+  // which keeps the CLI and old clients byte-compatible.
+  let meta;
+  if (views !== undefined || ttlSeconds !== undefined) {
+    const v = views === undefined ? 1 : views;
+    const t = ttlSeconds === undefined ? 86400 : ttlSeconds;
+    if (!Number.isInteger(v) || v < 1) throw new Error('invalid views');
+    if (!Number.isInteger(t) || t < 0) throw new Error('invalid ttlSeconds');
+    meta = { ttlSeconds: t, views: v };
+  } else {
+    meta = { expire: '1day' };
+  }
+
   const body = {
     v: 1,
     ct: b64urlFromBytes(ct),
     wk: b64urlFromBytes(wk),
     adata,
-    meta: { expire: '1day' },
+    meta,
   };
   return { body, fragment: b64urlFromBytes(F) };
 }

@@ -40,12 +40,22 @@ async function throwHttpError(res, fallback, consumeState = null) {
   );
 }
 
-/** Create a paste. `body` is the format-v1 object. Returns { id, deletetoken }. */
-export async function createPaste(body) {
+/**
+ * Create a paste. `body` is the format-v1 object. Returns { id, deletetoken }.
+ * When the deployment enables the owner-only create gate, pass the owner's
+ * create token as `createToken`; it travels in a header, never the URL.
+ * `note` is an optional owner label sent BESIDE the paste object (the
+ * server stores it only in the admin index; it never enters the encrypted
+ * format or the AAD).
+ */
+export async function createPaste(body, createToken = '', note = '') {
+  const headers = { 'content-type': 'application/json' };
+  if (createToken) headers['x-create-token'] = createToken;
+  const payload = note ? { ...body, note } : body;
   const res = await fetch('/api/paste', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
+    headers,
+    body: JSON.stringify(payload),
   });
   if (!res.ok) await throwHttpError(res, 'Request failed.');
   const data = await readJson(res);

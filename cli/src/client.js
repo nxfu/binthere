@@ -60,11 +60,18 @@ export class Client {
     }
   }
 
-  /** Create a paste. `body` is the format-v1 object. Returns { id, deletetoken }. */
+  /**
+   * Create a paste. `body` is the format-v1 object. Returns { id, deletetoken }.
+   * Deployments with the owner-only create gate need the token: pass it via
+   * the BINTHERE_CREATE_TOKEN environment variable (header only, never URL).
+   */
   async createPaste(body) {
+    const headers = { 'content-type': 'application/json' };
+    const token = globalThis.process?.env?.BINTHERE_CREATE_TOKEN;
+    if (token) headers['x-create-token'] = token;
     const res = await this.fetch(`${this.server}/api/paste`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers,
       body: JSON.stringify(body),
     });
     const data = await readJson(res);

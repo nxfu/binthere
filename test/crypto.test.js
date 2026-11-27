@@ -77,6 +77,16 @@ describe('encrypt/decrypt round-trip', () => {
     expect(out.text).toBe(text);
   });
 
+  it('custom views/ttlSeconds land in meta (AAD untouched) and round-trip', async () => {
+    const { body, fragment } = await encryptPaste({ text: 'custom budget', views: 5, ttlSeconds: 7200 });
+    expect(body.meta).toEqual({ ttlSeconds: 7200, views: 5 });
+    expect(body.adata.bar).toBe(true);
+    expect(() => validatePaste(body)).not.toThrow();
+    expect((await decryptPaste({ paste: body, fragment })).text).toBe('custom budget');
+    await expect(encryptPaste({ text: 'x', views: 0 })).rejects.toThrow(/invalid views/);
+    await expect(encryptPaste({ text: 'x', ttlSeconds: -1 })).rejects.toThrow(/invalid ttlSeconds/);
+  });
+
   it('round-trips every content format as a one-time note', async () => {
     for (const fmt of ['plaintext', 'code', 'markdown']) {
       const text = `body ${fmt}`;
