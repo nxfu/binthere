@@ -63,9 +63,9 @@ export function idxKey(id) {
 }
 
 export async function idxPut(env, id, meta, ttlSec) {
-  // KV expirationTtl has a 60s floor; create validation already enforces
-  // MIN_TTL_SECONDS >= 60 by default, but clamp so a lower env floor can
-  // never make the put throw.
+  // KV expirationTtl has a 60s floor; create validation enforces an
+  // effective MIN_TTL_SECONDS >= 60 (max(60, env)), and this clamp is
+  // belt-and-braces so the put can never throw on a short TTL.
   const expirationTtl = Math.max(60, Math.floor(ttlSec) || 60);
   await env.PASTES.put(idxKey(id), JSON.stringify(meta), { expirationTtl });
 }
@@ -88,17 +88,23 @@ export async function idxDelete(env, id) {
 /**
  * Replace the note on an existing index record (paste itself untouched).
  * Returns 'ok' on success, 'notfound' when there is no index record for
- * the id, and 'expiring' when the paste has under 60 seconds of lifetime
- * left: KV's minimum expirationTtl is 60s, so re-putting then would keep
- * the index record alive past the paste itself. The record is re-put
- * with its REMAINING lifetime (from the stored expiresAt), so editing a
- * note never extends the index past the paste's own expiry.
+ * the id (or the record is corrupt — no integer expiresAt — in which
+ * case it is dropped rather than re-put with a guessed TTL), and
+ * 'expiring' when the paste has under 60 seconds of lifetime left: KV's
+ * minimum expirationTtl is 60s, so re-putting then would keep the index
+ * record alive past the paste itself. The record is re-put with its
+ * REMAINING lifetime (from the stored expiresAt), so editing a note
+ * never extends the index past the paste's own expiry.
  */
 export async function idxUpdateNote(env, id, note) {
   const meta = await idxGet(env, id);
   if (!meta) return 'notfound';
+  if (!Number.isInteger(meta.expiresAt)) {
+    await idxDelete(env, id);
+    return 'notfound';
+  }
   const now = Math.floor(Date.now() / 1000);
-  const remaining = Number.isInteger(meta.expiresAt) ? meta.expiresAt - now : 60;
+  const remaining = meta.expiresAt - now;
   if (remaining < 60) return 'expiring';
   if (note) meta.note = note;
   else delete meta.note;

@@ -1,7 +1,8 @@
 // create — encrypt locally, POST ciphertext, print the share URL.
 //
-// Lifecycle matches the website exactly: every note is one-time view and
-// deletes after one read or 24 hours. The API rejects other lifecycles.
+// The CLI creates the classic one-time lifecycle: one read or 24 hours.
+// The service itself (website/API) also supports free-form view counts
+// and TTLs; the CLI simply doesn't expose those knobs.
 //
 // stdout carries ONLY the share URL (or the --json object), so
 // `binthere create | pbcopy` copies just the link; the delete token, lifecycle

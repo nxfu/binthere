@@ -25,8 +25,9 @@ export const VERSION = createRequire(import.meta.url)('../package.json').version
 const HELP = `binthere ${VERSION} — zero-knowledge encrypted notes CLI
 
 Notes are encrypted locally (AES-256-GCM); the key travels in the URL
-#fragment and never reaches the server. Same lifecycle as the website:
-every note deletes after one read, or after 24 hours.
+#fragment and never reaches the server. This CLI creates one-read notes
+that delete after one read, or after 24 hours; the website/API also
+support free-form view counts and expiry.
 
 Usage:
   binthere                           interactive: write a note, get its link + QR

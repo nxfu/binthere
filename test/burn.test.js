@@ -247,6 +247,49 @@ describe('burn-after-read (Durable Object)', () => {
     expect(Number.isInteger(pasteExt.meta.expiresAt)).toBe(true);
   });
 
+  it('legacy-shaped create stores upstream meta {created, expire} only', async () => {
+    // Client meta { expire } (no ttlSeconds/views) → the stored meta must
+    // stay the exact upstream shape so pre-fork clients (strict
+    // { expire, created } allowlist) can read the link. The DO still
+    // enforces TTL/views from its own exp/viewsLeft.
+    const { body, fragment } = await encryptPaste({ text: 'old shape' });
+    expect(body.meta).toEqual({ expire: '1day' });
+    const { id } = await (await postPaste(body)).json();
+
+    const head = await (await getPaste(id)).json();
+    expect(Object.keys(head.meta).sort()).toEqual(['created', 'expire']);
+    expect(head.meta.expire).toBe('1day');
+
+    // The fork's own UI still gets its countdown/budget via ?ext=1.
+    const headExt = await (await getPasteExt(id)).json();
+    expect(headExt.meta.viewsLeft).toBe(1);
+    expect(headExt.meta.expiresAt).toBeGreaterThan(Math.floor(Date.now() / 1000) + 80000);
+
+    const paste = await (await consume(id)).json();
+    expect(Object.keys(paste.meta).sort()).toEqual(['created', 'expire']);
+    expect((await decryptPaste({ paste, fragment })).text).toBe('old shape');
+    expect((await consume(id)).status).toBe(410); // legacy = 1 view
+
+    // Contrast: a custom-shaped create keeps ttlSeconds/views in meta.
+    const custom = await encryptPaste({ text: 'new shape', views: 2, ttlSeconds: 3600 });
+    const { id: id2 } = await (await postPaste(custom.body)).json();
+    const head2 = await (await getPaste(id2)).json();
+    expect(head2.meta.ttlSeconds).toBe(3600);
+    expect(head2.meta.views).toBe(2);
+  });
+
+  it('MIN_TTL_SECONDS below 60 is floored to 60 (index never outlives paste)', async () => {
+    env.MIN_TTL_SECONDS = '30';
+    try {
+      const tooShort = await encryptPaste({ text: 'x', views: 1, ttlSeconds: 45 });
+      expect((await postPaste(tooShort.body)).status).toBe(400);
+      const atFloor = await encryptPaste({ text: 'x', views: 1, ttlSeconds: 60 });
+      expect((await postPaste(atFloor.body)).status).toBe(201);
+    } finally {
+      delete env.MIN_TTL_SECONDS;
+    }
+  });
+
   it('revoke (delete token) works mid-budget on a multi-view paste', async () => {
     const { body } = await encryptPaste({ text: 'revoke me', views: 5, ttlSeconds: 3600 });
     const { id, deletetoken } = await (await postPaste(body)).json();

@@ -37,78 +37,89 @@ export default {
   },
 
   async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-    const { pathname } = url;
-
-    // The Worker only owns the API surface; anything else is a static asset.
-    if (!pathname.startsWith('/api/')) {
-      return env.ASSETS ? env.ASSETS.fetch(request) : new Response('Not found', { status: 404 });
+    // Last-resort guard: an unexpected throw anywhere in routing or a
+    // handler becomes a JSON { error } 500 instead of the runtime's bare
+    // 500 page, which API clients cannot parse.
+    try {
+      return await route(request, env, ctx);
+    } catch {
+      return err('Internal error.', 500);
     }
-
-    if (pathname === '/api/paste') {
-      if (request.method === 'POST') return createPaste(request, env, ctx);
-      return err('Method not allowed', 405, { allow: 'POST' });
-    }
-
-    // Owner admin (custom fork): cross-device list/revoke of created links.
-    // Same token gate as creation (X-Create-Token vs CREATE_TOKEN_SHA256).
-    if (pathname === '/api/admin/list') {
-      if (request.method === 'GET') return adminList(request, env);
-      return err('Method not allowed', 405, { allow: 'GET' });
-    }
-
-    if (pathname === '/api/admin/revoke') {
-      if (request.method === 'POST') return adminRevoke(request, env);
-      return err('Method not allowed', 405, { allow: 'POST' });
-    }
-
-    if (pathname === '/api/admin/note') {
-      if (request.method === 'POST') return adminNote(request, env);
-      return err('Method not allowed', 405, { allow: 'POST' });
-    }
-
-    if (pathname === '/api/statistics') {
-      if (request.method === 'GET') return readPasteStatistics(env);
-      return err('Method not allowed', 405, { allow: 'GET' });
-    }
-
-    if (pathname === '/api/stars') {
-      if (request.method === 'GET') return readStars(env);
-      return err('Method not allowed', 405, { allow: 'GET' });
-    }
-
-    const mc = pathname.match(/^\/api\/paste\/([^/]+)\/consume$/);
-    if (mc) {
-      let id;
-      try {
-        id = decodeURIComponent(mc[1]);
-      } catch {
-        return err('Document does not exist, has expired or has been deleted.', 404);
-      }
-      if (request.method !== 'POST') return err('Method not allowed', 405, { allow: 'POST' });
-      return consumePaste(id, request, env, url.searchParams.get('ext') === '1');
-    }
-
-    const m = pathname.match(/^\/api\/paste\/([^/]+)$/);
-    if (m) {
-      let id;
-      try {
-        // Malformed percent-encoding (e.g. "%zz") must be a clean 404, not an
-        // uncaught URIError → HTTP 500.
-        id = decodeURIComponent(m[1]);
-      } catch {
-        return err('Document does not exist, has expired or has been deleted.', 404);
-      }
-      if (request.method === 'GET') {
-        return readPaste(id, env, url.searchParams.get('meta') === '1', url.searchParams.get('ext') === '1');
-      }
-      if (request.method === 'DELETE') return deletePaste(id, request, env);
-      return err('Method not allowed', 405, { allow: 'GET, DELETE' });
-    }
-
-    return err('Not found', 404);
   },
 };
+
+async function route(request, env, ctx) {
+  const url = new URL(request.url);
+  const { pathname } = url;
+
+  // The Worker only owns the API surface; anything else is a static asset.
+  if (!pathname.startsWith('/api/')) {
+    return env.ASSETS ? env.ASSETS.fetch(request) : new Response('Not found', { status: 404 });
+  }
+
+  if (pathname === '/api/paste') {
+    if (request.method === 'POST') return createPaste(request, env, ctx);
+    return err('Method not allowed', 405, { allow: 'POST' });
+  }
+
+  // Owner admin (custom fork): cross-device list/revoke of created links.
+  // Same token gate as creation (X-Create-Token vs CREATE_TOKEN_SHA256).
+  if (pathname === '/api/admin/list') {
+    if (request.method === 'GET') return adminList(request, env);
+    return err('Method not allowed', 405, { allow: 'GET' });
+  }
+
+  if (pathname === '/api/admin/revoke') {
+    if (request.method === 'POST') return adminRevoke(request, env);
+    return err('Method not allowed', 405, { allow: 'POST' });
+  }
+
+  if (pathname === '/api/admin/note') {
+    if (request.method === 'POST') return adminNote(request, env);
+    return err('Method not allowed', 405, { allow: 'POST' });
+  }
+
+  if (pathname === '/api/statistics') {
+    if (request.method === 'GET') return readPasteStatistics(env);
+    return err('Method not allowed', 405, { allow: 'GET' });
+  }
+
+  if (pathname === '/api/stars') {
+    if (request.method === 'GET') return readStars(env);
+    return err('Method not allowed', 405, { allow: 'GET' });
+  }
+
+  const mc = pathname.match(/^\/api\/paste\/([^/]+)\/consume$/);
+  if (mc) {
+    let id;
+    try {
+      id = decodeURIComponent(mc[1]);
+    } catch {
+      return err('Document does not exist, has expired or has been deleted.', 404);
+    }
+    if (request.method !== 'POST') return err('Method not allowed', 405, { allow: 'POST' });
+    return consumePaste(id, request, env, url.searchParams.get('ext') === '1');
+  }
+
+  const m = pathname.match(/^\/api\/paste\/([^/]+)$/);
+  if (m) {
+    let id;
+    try {
+      // Malformed percent-encoding (e.g. "%zz") must be a clean 404, not an
+      // uncaught URIError → HTTP 500.
+      id = decodeURIComponent(m[1]);
+    } catch {
+      return err('Document does not exist, has expired or has been deleted.', 404);
+    }
+    if (request.method === 'GET') {
+      return readPaste(id, env, url.searchParams.get('meta') === '1', url.searchParams.get('ext') === '1');
+    }
+    if (request.method === 'DELETE') return deletePaste(id, request, env);
+    return err('Method not allowed', 405, { allow: 'GET, DELETE' });
+  }
+
+  return err('Not found', 404);
+}
 
 // Read a request body while enforcing a hard byte cap, without ever buffering
 // an attacker-sized payload. Returns the bytes as a Uint8Array, or null if the
@@ -255,7 +266,10 @@ async function createPaste(request, env, ctx) {
   }
   const maxViews = envLimit(env, 'MAX_VIEWS', 1000);
   const maxTtl = envLimit(env, 'MAX_TTL_SECONDS', 2592000);
-  const minTtl = envLimit(env, 'MIN_TTL_SECONDS', 60);
+  // Effective floor is max(60, env): KV's minimum expirationTtl is 60s, so
+  // a sub-60 paste would make the admin index (clamped to 60s in idxPut)
+  // outlive the paste it describes.
+  const minTtl = Math.max(60, envLimit(env, 'MIN_TTL_SECONDS', 60));
   const ttl = clean.meta.ttlSeconds ?? EXPIRE_SECONDS[clean.meta.expire];
   const views = clean.meta.views ?? 1;
   if (!Number.isInteger(ttl) || ttl < minTtl || ttl > maxTtl) {
@@ -273,8 +287,17 @@ async function createPaste(request, env, ctx) {
   // Server-only read fields (viewsLeft/expiresAt) are never taken from the
   // client; the DO attaches them on peek/consume only when the caller opts
   // in with ?ext=1 (legacy callers keep the exact upstream meta shape).
-  const meta = { created, ttlSeconds: ttl, views };
-  if (clean.meta.expire) meta.expire = clean.meta.expire;
+  // A legacy-shaped create (client meta carried only `expire`) keeps the
+  // upstream stored shape { created, expire }: pre-fork clients validate
+  // meta against a strict { expire, created } allowlist and would reject
+  // (and, on consume, lose) a paste whose stored meta gained ttlSeconds/
+  // views. The DO's exp/viewsLeft and the admin index carry the numbers
+  // separately, so nothing is lost; new clients read the countdown from
+  // ?ext=1's expiresAt (or created + EXPIRE_SECONDS[expire]).
+  const legacyShape = clean.meta.ttlSeconds === undefined && clean.meta.views === undefined;
+  const meta = legacyShape
+    ? { created, expire: clean.meta.expire }
+    : { created, ttlSeconds: ttl, views, ...(clean.meta.expire ? { expire: clean.meta.expire } : {}) };
   const paste = {
     v: clean.v, ct: clean.ct, wk: clean.wk, adata: clean.adata,
     meta,
@@ -461,13 +484,22 @@ async function adminList(request, env) {
   // links exist. The admin page follows the cursor until it is null.
   const params = new URL(request.url).searchParams;
   const rawLimit = Number(params.get('limit'));
-  const { entries, cursor } = await idxList(env, {
-    cursor: params.get('cursor') || undefined,
-    limit: Number.isInteger(rawLimit) && rawLimit > 0 ? rawLimit : undefined,
-  });
+  const cursorParam = params.get('cursor') || undefined;
+  let entries, cursor;
+  try {
+    ({ entries, cursor } = await idxList(env, {
+      cursor: cursorParam,
+      limit: Number.isInteger(rawLimit) && rawLimit > 0 ? rawLimit : undefined,
+    }));
+  } catch (e) {
+    // KV rejects a malformed/foreign cursor by throwing; that is the
+    // client's error (400), not a server fault. A failure with no
+    // cursor supplied is a real storage error → top-level 500.
+    if (cursorParam !== undefined) return err('Invalid cursor.', 400);
+    throw e;
+  }
   const pastes = [];
   for (const { id, meta } of entries) {
-    const info = parseId(id);
     const base = {
       id,
       createdAt: Number.isInteger(meta?.createdAt) ? meta.createdAt : 0,
@@ -478,29 +510,38 @@ async function adminList(request, env) {
       // existed have no key → ''.
       note: typeof meta?.note === 'string' ? meta.note : '',
     };
-    if (!info || !meta) {
-      // Corrupt/foreign index record: report gone once and prune it.
-      try { await idxDelete(env, id); } catch { /* advisory */ }
+    try {
+      const info = parseId(id);
+      if (!info || !meta) {
+        // Corrupt/foreign index record: report gone once and prune it.
+        try { await idxDelete(env, id); } catch { /* advisory */ }
+        pastes.push({ ...base, viewsLeft: 0, gone: true });
+        continue;
+      }
+      if (info.burn) {
+        const res = await burnStub(env, id).peek(true);
+        if (res.status === 'ok') {
+          pastes.push({ ...base, viewsLeft: res.head.meta.viewsLeft, gone: false });
+        } else {
+          try { await idxDelete(env, id); } catch { /* advisory */ }
+          pastes.push({ ...base, viewsLeft: 0, gone: true });
+        }
+      } else {
+        // Legacy KV pastes are reusable (reads don't spend views).
+        const rec = await kvGet(env, id);
+        if (rec) {
+          pastes.push({ ...base, viewsLeft: base.viewsTotal, gone: false });
+        } else {
+          try { await idxDelete(env, id); } catch { /* advisory */ }
+          pastes.push({ ...base, viewsLeft: 0, gone: true });
+        }
+      }
+    } catch {
+      // One bad entry (transient DO/KV error, corrupt record) must not
+      // sink the whole page. Report it gone for this response but do
+      // NOT prune its index: the failure may be transient, and a later
+      // list will re-check it.
       pastes.push({ ...base, viewsLeft: 0, gone: true });
-      continue;
-    }
-    if (info.burn) {
-      const res = await burnStub(env, id).peek(true);
-      if (res.status === 'ok') {
-        pastes.push({ ...base, viewsLeft: res.head.meta.viewsLeft, gone: false });
-      } else {
-        try { await idxDelete(env, id); } catch { /* advisory */ }
-        pastes.push({ ...base, viewsLeft: 0, gone: true });
-      }
-    } else {
-      // Legacy KV pastes are reusable (reads don't spend views).
-      const rec = await kvGet(env, id);
-      if (rec) {
-        pastes.push({ ...base, viewsLeft: base.viewsTotal, gone: false });
-      } else {
-        try { await idxDelete(env, id); } catch { /* advisory */ }
-        pastes.push({ ...base, viewsLeft: 0, gone: true });
-      }
     }
   }
   // Newest first within the page; same-second creates fall back to later
@@ -551,11 +592,11 @@ async function adminRevoke(request, env) {
   return json({ status: 'revoked', id }, 200);
 }
 
-// Set/replace the plain-text owner note on one index record. Touches ONLY
-// the `idx:` record — the paste (DO/KV) is never read or modified, so a
-// note edit can never spend a view or resurrect a gone paste. Same gate
+// Set/replace the plain-text owner note on one index record. Writes ONLY
+// the `idx:` record — the paste itself is peeked (never consumed) purely
+// as a liveness check, so a note edit can never spend a view. Same gate
 // and rate limit as the other admin endpoints; unknown id (no index
-// record) is a 404.
+// record, or paste already gone) is a 404.
 async function adminNote(request, env) {
   const contentType = (request.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
   if (contentType !== 'application/json') {
@@ -577,7 +618,21 @@ async function adminNote(request, env) {
     return err('Invalid JSON body.', 400);
   }
   const id = parsed && typeof parsed === 'object' ? parsed.id : null;
-  if (typeof id !== 'string' || !parseId(id)) {
+  const info = typeof id === 'string' ? parseId(id) : null;
+  if (!info) {
+    return err('Document does not exist, has expired or has been deleted.', 404);
+  }
+  // Liveness check before touching the index: if the paste is already
+  // gone (consumed/revoked/expired) but its index record survived, a
+  // note edit must not keep or resurrect it — prune the index and 404.
+  // peek never consumes, so this cannot spend a view. (A revoke landing
+  // in the peek→put gap can still resurrect the record; the next list
+  // prunes it — DO and KV offer no cross-store atomicity.)
+  const alive = info.burn
+    ? (await burnStub(env, id).peek(false)).status === 'ok'
+    : (await kvGet(env, id)) !== null;
+  if (!alive) {
+    try { await idxDelete(env, id); } catch { /* advisory */ }
     return err('Document does not exist, has expired or has been deleted.', 404);
   }
   const note = sanitizeNote(parsed.note);
