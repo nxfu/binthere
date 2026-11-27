@@ -45,11 +45,17 @@ export class BurnPaste extends DurableObject {
   /**
    * Non-consuming metadata read: returns the paste head (everything EXCEPT the
    * ciphertext `ct`) so the client can verify a password before a destructive
-   * read. Does not delete and does not spend a view. The head's meta carries
-   * the server-attached `viewsLeft` and `expiresAt` (unix seconds, 0 = none)
-   * so the reader UI can show the remaining budget and countdown.
+   * read. Does not delete and does not spend a view.
+   *
+   * `extended` opts into the fork's server-attached read fields (`viewsLeft`
+   * and `expiresAt`, unix seconds, 0 = none) in the head's meta, so the
+   * reader UI can show the remaining budget and countdown. The default
+   * (false) returns the stored meta verbatim — the exact upstream response
+   * shape — because pre-fork clients validate meta against a strict key
+   * allowlist and would reject (and, on consume, lose) a paste whose meta
+   * gained fields they don't know.
    */
-  async peek() {
+  async peek(extended = false) {
     return this.ctx.blockConcurrencyWhile(async () => {
       const rec = await this.ctx.storage.get(KEY);
       if (!rec) return { status: 'gone' };
@@ -57,7 +63,7 @@ export class BurnPaste extends DurableObject {
       const p = rec.paste;
       return {
         status: 'ok',
-        head: { v: p.v, wk: p.wk, adata: p.adata, meta: this.#metaWithBudget(rec) },
+        head: { v: p.v, wk: p.wk, adata: p.adata, meta: this.#meta(rec, extended) },
       };
     });
   }
@@ -65,10 +71,12 @@ export class BurnPaste extends DurableObject {
   /**
    * Atomically spend one view and return the paste. While views remain after
    * this read the record (and its expiry alarm) is kept with the decremented
-   * budget; on the last view the record is purged before returning. The
-   * returned paste's meta carries `viewsLeft` (after this read) + `expiresAt`.
+   * budget; on the last view the record is purged before returning. With
+   * `extended`, the returned paste's meta carries `viewsLeft` (after this
+   * read) + `expiresAt`; without it the stored meta is returned verbatim
+   * (upstream shape — see peek()).
    */
-  async consume() {
+  async consume(extended = false) {
     return this.ctx.blockConcurrencyWhile(async () => {
       const rec = await this.ctx.storage.get(KEY);
       if (!rec) return { status: 'gone' };
@@ -77,7 +85,7 @@ export class BurnPaste extends DurableObject {
       const after = left - 1;
       const paste = {
         ...rec.paste,
-        meta: { ...rec.paste.meta, viewsLeft: after, expiresAt: rec.exp ? Math.floor(rec.exp / 1000) : 0 },
+        meta: this.#meta(rec, extended, after),
       };
       if (after > 0) {
         await this.ctx.storage.put(KEY, { ...rec, viewsLeft: after });
@@ -118,8 +126,15 @@ export class BurnPaste extends DurableObject {
     await this.#purge();
   }
 
-  #metaWithBudget(rec) {
-    const left = Number.isInteger(rec.viewsLeft) && rec.viewsLeft >= 1 ? rec.viewsLeft : 1;
+  /**
+   * Response meta for peek/consume. Non-extended: the stored meta verbatim
+   * (upstream shape). Extended: stored meta plus the server-attached
+   * `viewsLeft` (`leftOverride` lets consume report the post-read budget)
+   * and `expiresAt`.
+   */
+  #meta(rec, extended, leftOverride) {
+    if (!extended) return rec.paste.meta;
+    const left = leftOverride ?? (Number.isInteger(rec.viewsLeft) && rec.viewsLeft >= 1 ? rec.viewsLeft : 1);
     return {
       ...rec.paste.meta,
       viewsLeft: left,

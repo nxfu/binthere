@@ -87,34 +87,48 @@ export async function idxDelete(env, id) {
 
 /**
  * Replace the note on an existing index record (paste itself untouched).
- * Returns false when there is no index record for the id. The record is
- * re-put with its REMAINING lifetime (from the stored expiresAt), so
- * editing a note never extends the index past the paste's own expiry.
+ * Returns 'ok' on success, 'notfound' when there is no index record for
+ * the id, and 'expiring' when the paste has under 60 seconds of lifetime
+ * left: KV's minimum expirationTtl is 60s, so re-putting then would keep
+ * the index record alive past the paste itself. The record is re-put
+ * with its REMAINING lifetime (from the stored expiresAt), so editing a
+ * note never extends the index past the paste's own expiry.
  */
 export async function idxUpdateNote(env, id, note) {
   const meta = await idxGet(env, id);
-  if (!meta) return false;
-  if (note) meta.note = note;
-  else delete meta.note;
+  if (!meta) return 'notfound';
   const now = Math.floor(Date.now() / 1000);
   const remaining = Number.isInteger(meta.expiresAt) ? meta.expiresAt - now : 60;
+  if (remaining < 60) return 'expiring';
+  if (note) meta.note = note;
+  else delete meta.note;
   await idxPut(env, id, meta, remaining);
-  return true;
+  return 'ok';
 }
 
-/** All index entries as [{ id, meta }]; corrupt values yield meta=null. */
-export async function idxList(env) {
-  const out = [];
-  let cursor;
-  do {
-    const page = await env.PASTES.list({ prefix: IDX_PREFIX, cursor });
-    for (const key of page.keys) {
-      const id = key.name.slice(IDX_PREFIX.length);
-      out.push({ id, meta: await idxGet(env, id) });
-    }
-    cursor = page.list_complete ? undefined : page.cursor;
-  } while (cursor);
-  return out;
+/** Default/max index entries per idxList page (one KV get per entry). */
+export const IDX_PAGE_DEFAULT = 50;
+export const IDX_PAGE_MAX = 100;
+
+/**
+ * One bounded page of index entries: [{ id, meta }] plus a continuation
+ * `cursor` (null when the listing is complete). Corrupt values yield
+ * meta=null. Each call performs at most `limit` KV gets on top of one
+ * KV list, so a single request stays well inside the per-request KV
+ * operation budget no matter how many links exist; callers page through
+ * with the returned cursor.
+ */
+export async function idxList(env, { cursor, limit } = {}) {
+  const pageSize = Number.isInteger(limit)
+    ? Math.min(IDX_PAGE_MAX, Math.max(1, limit))
+    : IDX_PAGE_DEFAULT;
+  const page = await env.PASTES.list({ prefix: IDX_PREFIX, cursor, limit: pageSize });
+  const entries = [];
+  for (const key of page.keys) {
+    const id = key.name.slice(IDX_PREFIX.length);
+    entries.push({ id, meta: await idxGet(env, id) });
+  }
+  return { entries, cursor: page.list_complete ? null : page.cursor };
 }
 
 // ── Durable Object (burn-after-read pastes) ──────────────────────────────────

@@ -82,9 +82,13 @@ export class Client {
     return data;
   }
 
-  /** Fetch a paste (never consumes — burn ids answer with their head). */
+  /**
+   * Fetch a paste (never consumes — burn ids answer with their head).
+   * `?ext=1` opts into the server-attached meta fields (viewsLeft /
+   * expiresAt); legacy callers that omit it keep the upstream shape.
+   */
   async fetchPaste(id) {
-    const res = await this.fetch(`${this.server}/api/paste/${encodeURIComponent(id)}`);
+    const res = await this.fetch(`${this.server}/api/paste/${encodeURIComponent(id)}?ext=1`);
     if (!res.ok) {
       const data = await readJson(res);
       throw new ApiError(serverError(data, 'Not found.'), res.status);
@@ -102,7 +106,7 @@ export class Client {
   async consumePaste(id) {
     let url;
     try {
-      url = `${this.server}/api/paste/${encodeURIComponent(id)}/consume`;
+      url = `${this.server}/api/paste/${encodeURIComponent(id)}/consume?ext=1`;
     } catch {
       throw new ApiError('Could not prepare the consume request.', 0, 'not-sent');
     }
@@ -138,7 +142,7 @@ export class Client {
    * consuming it. Used to verify a password before the single destructive read.
    */
   async fetchPasteMeta(id) {
-    const res = await this.fetch(`${this.server}/api/paste/${encodeURIComponent(id)}?meta=1`);
+    const res = await this.fetch(`${this.server}/api/paste/${encodeURIComponent(id)}?meta=1&ext=1`);
     if (!res.ok) {
       const data = await readJson(res);
       throw new ApiError(serverError(data, 'Not found.'), res.status);
