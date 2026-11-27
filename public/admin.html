@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en" class="dark">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="robots" content="noindex, nofollow" />
+        <meta name="referrer" content="no-referrer" />
+        <meta name="color-scheme" content="dark light" />
+        <meta name="theme-color" content="#0d1117" />
+        <title>binthere · admin</title>
+        <link rel="icon" type="image/svg+xml" href="/img/favicon.svg" />
+        <link rel="icon" type="image/png" sizes="16x16" href="/img/favicon-16.png" />
+        <link rel="icon" type="image/png" sizes="32x32" href="/img/favicon-32.png" />
+        <link rel="apple-touch-icon" href="/img/apple-touch-icon.png" />
+        <!-- Blocking, first-party (CSP-safe): sets the theme class before paint. -->
+        <script src="/js/theme-init.js"></script>
+        <link rel="stylesheet" href="/css/styles.css" />
+        <script type="module" src="/js/admin.js"></script>
+    </head>
+    <body>
+        <div class="wrap wrap-admin">
+            <header class="topbar">
+                <a class="brand" href="/" aria-label="binthere home"><span class="wm-a">bin</span><span class="wm-b">there</span></a>
+                <span class="admin-tag">admin</span>
+            </header>
+
+            <section class="head">
+                <p class="eyebrow">Owner only</p>
+                <h1 class="title">Your links</h1>
+                <p class="subtitle">
+                    Every link you created, across devices. The server never sees
+                    paste contents or keys — only metadata, plus the plain-text
+                    labels (notes) you add here to tell links apart. Enter your
+                    create token to load the list; it stays in this page's memory
+                    and is never stored.
+                </p>
+            </section>
+
+            <form class="admin-auth" id="admin-auth">
+                <div class="create-opts admin-opts">
+                    <label class="opt admin-token-opt">
+                        <span class="opt-label">Create token</span>
+                        <input
+                            type="password"
+                            id="admin-token"
+                            autocomplete="current-password"
+                            placeholder="Owner only"
+                            required
+                        />
+                    </label>
+                    <button type="submit" class="btn" id="admin-load">Load links</button>
+                </div>
+            </form>
+
+            <p class="admin-status" id="admin-status" role="status" aria-live="polite"></p>
+
+            <div class="admin-table-wrap" id="admin-table-wrap" hidden>
+                <table class="admin-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">ID</th>
+                            <th scope="col">Note</th>
+                            <th scope="col">Created</th>
+                            <th scope="col">Expires</th>
+                            <th scope="col">Views</th>
+                            <th scope="col">Status</th>
+                            <th scope="col"><span class="admin-sr">Action</span></th>
+                        </tr>
+                    </thead>
+                    <tbody id="admin-rows"></tbody>
+                </table>
+            </div>
+        </div>
+    </body>
+</html>

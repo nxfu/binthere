@@ -135,19 +135,54 @@ function validateAdata(a) {
   };
 }
 
-/** Validate meta and return a clean copy. Throws FormatError. */
+const META_KEYS = ['expire', 'created', 'ttlSeconds', 'views', 'viewsLeft', 'expiresAt'];
+
+/**
+ * Validate meta and return a clean copy. Throws FormatError.
+ * Two create shapes are accepted (custom fork extension, AAD untouched):
+ *   legacy: { expire: <enum> }                     (old links / CLI)
+ *   custom: { ttlSeconds: <int>, views: <int> }    (expire optional)
+ * Server-attached read fields `viewsLeft` / `expiresAt` (unix seconds) are
+ * also accepted so heads and consume responses validate on the client.
+ * Range enforcement for ttlSeconds/views lives server-side (env-tunable);
+ * here we only require well-typed, non-negative integers.
+ */
 function validateMeta(m) {
   if (!isPlainObject(m)) throw new FormatError('meta must be an object');
   assertNoDangerousKeys(m, 'meta');
   for (const k of Object.keys(m)) {
-    if (k !== 'expire' && k !== 'created') throw new FormatError(`unknown field "${k}" in meta`);
+    if (!META_KEYS.includes(k)) throw new FormatError(`unknown field "${k}" in meta`);
   }
-  if (!EXPIRE_OPTIONS.includes(m.expire)) throw new FormatError('invalid expire');
-  if (Object.prototype.hasOwnProperty.call(m, 'created')) {
+  const has = (k) => Object.prototype.hasOwnProperty.call(m, k);
+  if (!has('expire') && !has('ttlSeconds')) {
+    throw new FormatError('meta needs expire or ttlSeconds');
+  }
+  const out = {};
+  if (has('expire')) {
+    if (!EXPIRE_OPTIONS.includes(m.expire)) throw new FormatError('invalid expire');
+    out.expire = m.expire;
+  }
+  if (has('ttlSeconds')) {
+    if (!Number.isInteger(m.ttlSeconds) || m.ttlSeconds < 0) throw new FormatError('invalid ttlSeconds');
+    out.ttlSeconds = m.ttlSeconds;
+  }
+  if (has('views')) {
+    if (!Number.isInteger(m.views) || m.views < 1) throw new FormatError('invalid views');
+    out.views = m.views;
+  }
+  if (has('viewsLeft')) {
+    if (!Number.isInteger(m.viewsLeft) || m.viewsLeft < 0) throw new FormatError('invalid viewsLeft');
+    out.viewsLeft = m.viewsLeft;
+  }
+  if (has('expiresAt')) {
+    if (!Number.isInteger(m.expiresAt) || m.expiresAt < 0) throw new FormatError('invalid expiresAt');
+    out.expiresAt = m.expiresAt;
+  }
+  if (has('created')) {
     if (!Number.isInteger(m.created) || m.created < 0) throw new FormatError('invalid created');
-    return { expire: m.expire, created: m.created };
+    out.created = m.created;
   }
-  return { expire: m.expire };
+  return out;
 }
 
 /**

@@ -291,6 +291,23 @@ html.dark .theme-toggle .ico-moon { display: block; }
   padding: .6rem .7rem; border-top: 1px solid var(--rule); }
 .editor-bar-left { display: inline-flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
 
+/* ── create options (custom fork: views / TTL / create token) ────────────── */
+.create-opts { display: flex; gap: .8rem; flex-wrap: wrap; margin-top: .8rem; }
+.create-opts .opt { display: flex; flex-direction: column; gap: .3rem; font-size: .75rem; color: var(--ink-3); }
+.create-opts .opt-label { font-family: var(--mono); letter-spacing: .04em; text-transform: uppercase; }
+.create-opts input, .create-opts select { background: var(--sheet); border: 1px solid var(--rule-2); border-radius: 3px;
+  padding: .5rem .6rem; color: var(--ink); font-family: var(--mono); font-size: .8125rem; }
+.create-opts input:focus-visible, .create-opts select:focus-visible { outline: none; border-color: var(--ring);
+  box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--ring); }
+.create-opts #views-input { width: 5.5rem; }
+.create-opts #ttl-value { width: 5rem; }
+.create-opts #create-token { width: 11rem; }
+.create-opts #note-input { width: 16rem; max-width: 100%; }
+.create-opts .opt-ttl { display: inline-flex; gap: .4rem; }
+@media (max-width: 768px) {
+  .create-opts input, .create-opts select { font-size: 1rem; }
+}
+
 /* ── inputs ──────────────────────────────────────────────────────────────── */
 .input { background: var(--sheet); border: 1px solid var(--rule-2); border-radius: 3px; padding: .5rem .7rem;
   color: var(--ink); font-family: var(--mono); font-size: .8125rem; transition: border-color .14s ease, box-shadow .14s ease; }
@@ -518,6 +535,48 @@ html.dark .theme-toggle .ico-moon { display: block; }
 .foot-links a { font-family: var(--mono); font-size: .74rem; color: var(--ink-2); letter-spacing: .02em; transition: color .14s ease; }
 .foot-links a:hover { color: var(--accent); }
 
+/* ── admin page (custom fork) ────────────────────────────────────────────── */
+/* The link table has seven columns, so the admin page gets a wider shell
+   than the 680px reading column the paste pages use. */
+.wrap-admin { max-width: 1100px; }
+.admin-tag { font-family: var(--mono); font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+.admin-auth { margin-top: 1.2rem; }
+.admin-opts { align-items: flex-end; }
+.admin-token-opt { flex: 1; min-width: 12rem; }
+.admin-status { margin-top: 1rem; font-size: .85rem; color: var(--ink-2); min-height: 1.2em; }
+.admin-table-wrap { margin-top: 1rem; overflow-x: auto; background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; }
+/* Fixed layout + explicit column shares: the table always fills the shell,
+   long IDs/notes wrap inside their cell instead of pushing the table wider
+   than the page. On narrow screens the table keeps a readable minimum width
+   and scrolls inside .admin-table-wrap rather than crushing the columns. */
+.admin-table { width: 100%; border-collapse: collapse; font-size: .85rem; table-layout: fixed; }
+.admin-table th:nth-child(1) { width: 15%; }
+.admin-table th:nth-child(2) { width: 26%; }
+.admin-table th:nth-child(3), .admin-table th:nth-child(4) { width: 15%; }
+.admin-table th:nth-child(5) { width: 8%; }
+.admin-table th:nth-child(6) { width: 9%; }
+.admin-table th:nth-child(7) { width: 12%; }
+.admin-table th, .admin-table td { padding: .55rem .7rem; text-align: left; vertical-align: top; border-bottom: 1px solid var(--rule); }
+.admin-table th { white-space: nowrap; }
+.admin-table td { overflow-wrap: anywhere; }
+.admin-table .btn { max-width: 100%; }
+@media (max-width: 768px) { .admin-table { min-width: 600px; } }
+.admin-table thead th { font-family: var(--mono); font-size: .68rem; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
+.admin-table tbody tr:last-child td { border-bottom: none; }
+.admin-id { font-size: .78rem; }
+.admin-note { white-space: normal; }
+.admin-note-text { margin-right: .5rem; }
+.admin-note-empty { color: var(--ink-3); margin-right: .5rem; }
+.admin-note-edit { padding: .2rem .55rem; font-size: .75rem; }
+.admin-note-input { background: var(--sheet); border: 1px solid var(--rule-2); border-radius: 3px;
+  padding: .35rem .5rem; color: var(--ink); font-family: var(--mono); font-size: .8125rem;
+  width: 12rem; max-width: 100%; margin-right: .4rem; }
+.admin-note-input:focus-visible { outline: none; border-color: var(--ring);
+  box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--ring); }
+.admin-active { color: var(--ok); }
+.admin-gone { color: var(--seal); }
+.admin-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
 /* ── utilities ───────────────────────────────────────────────────────────── */
 .mt1 { margin-top: 1rem; }
 /* Offscreen staging for the legacy execCommand('copy') clipboard fallback. */
@@ -532,3 +591,4 @@ html.dark .theme-toggle .ico-moon { display: block; }
   .reveal { opacity: 1; }
   html { scroll-behavior: auto; }
 }
+

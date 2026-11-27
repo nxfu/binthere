@@ -126,6 +126,28 @@ describe('meta', () => {
     let p = base(); p.meta.created = 1.5; reject(p);
     p = base(); p.meta.created = -1; reject(p);
   });
+  it('accepts the custom { ttlSeconds, views } shape without expire', () => {
+    const p = base(); p.meta = { ttlSeconds: 7200, views: 3 };
+    const clean = validatePaste(p);
+    expect(clean.meta).toEqual({ ttlSeconds: 7200, views: 3 });
+  });
+  it('accepts custom shape alongside expire, and server read fields', () => {
+    const p = base();
+    p.meta = { expire: '1day', ttlSeconds: 86400, views: 2, viewsLeft: 1, expiresAt: 1700000000, created: 1699900000 };
+    expect(validatePaste(p).meta.viewsLeft).toBe(1);
+  });
+  it('rejects meta with neither expire nor ttlSeconds', () => {
+    const p = base(); p.meta = { views: 1 }; reject(p);
+  });
+  it('rejects malformed ttlSeconds/views/viewsLeft/expiresAt', () => {
+    for (const meta of [
+      { ttlSeconds: -1 }, { ttlSeconds: 1.5 }, { ttlSeconds: '60' },
+      { ttlSeconds: 60, views: 0 }, { ttlSeconds: 60, views: -2 }, { ttlSeconds: 60, views: 1.5 },
+      { ttlSeconds: 60, viewsLeft: -1 }, { ttlSeconds: 60, expiresAt: -5 },
+    ]) {
+      const p = base(); p.meta = meta; reject(p);
+    }
+  });
 });
 
 describe('prototype pollution safety', () => {
@@ -151,6 +173,13 @@ describe('burn-peek head validation (SPEC.md §8)', () => {
   it('accepts a canonical head (paste minus ct)', () => {
     const clean = validateHead(head());
     expect(Object.keys(clean).sort()).toEqual(['adata', 'meta', 'v', 'wk']);
+  });
+  it('accepts a custom head carrying viewsLeft/expiresAt', () => {
+    const h = head();
+    h.meta = { ttlSeconds: 3600, views: 3, viewsLeft: 2, expiresAt: 1700003600, created: 1700000000 };
+    const clean = validateHead(h);
+    expect(clean.meta.viewsLeft).toBe(2);
+    expect(clean.meta.expiresAt).toBe(1700003600);
   });
   it('rejects a head that still carries ciphertext', () => {
     const h = head(); h.ct = 'AAAA'; rejectHead(h);

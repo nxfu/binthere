@@ -40,12 +40,22 @@ async function throwHttpError(res, fallback, consumeState = null) {
   );
 }
 
-/** Create a paste. `body` is the format-v1 object. Returns { id, deletetoken }. */
-export async function createPaste(body) {
+/**
+ * Create a paste. `body` is the format-v1 object. Returns { id, deletetoken }.
+ * When the deployment enables the owner-only create gate, pass the owner's
+ * create token as `createToken`; it travels in a header, never the URL.
+ * `note` is an optional owner label sent BESIDE the paste object (the
+ * server stores it only in the admin index; it never enters the encrypted
+ * format or the AAD).
+ */
+export async function createPaste(body, createToken = '', note = '') {
+  const headers = { 'content-type': 'application/json' };
+  if (createToken) headers['x-create-token'] = createToken;
+  const payload = note ? { ...body, note } : body;
   const res = await fetch('/api/paste', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
+    headers,
+    body: JSON.stringify(payload),
   });
   if (!res.ok) await throwHttpError(res, 'Request failed.');
   const data = await readJson(res);
@@ -57,9 +67,14 @@ export async function createPaste(body) {
   return { id: data.id, deletetoken: data.deletetoken };
 }
 
-/** Fetch a paste (never consumes — burn ids answer with their head). */
+/**
+ * Fetch a paste (never consumes — burn ids answer with their head).
+ * `?ext=1` opts into the server-attached meta fields (viewsLeft /
+ * expiresAt) this UI displays; legacy callers that omit it keep the exact
+ * upstream response shape.
+ */
 export async function fetchPaste(id) {
-  const res = await fetch(`/api/paste/${encodeURIComponent(id)}`, { cache: 'no-store' });
+  const res = await fetch(`/api/paste/${encodeURIComponent(id)}?ext=1`, { cache: 'no-store' });
   if (!res.ok) await throwHttpError(res, 'Not found.');
   return requireObject(await readJson(res));
 }
@@ -70,7 +85,7 @@ export async function fetchPaste(id) {
  * single destructive read.
  */
 export async function fetchPasteMeta(id) {
-  const res = await fetch(`/api/paste/${encodeURIComponent(id)}?meta=1`, { cache: 'no-store' });
+  const res = await fetch(`/api/paste/${encodeURIComponent(id)}?meta=1&ext=1`, { cache: 'no-store' });
   if (!res.ok) await throwHttpError(res, 'Not found.');
   return requireObject(await readJson(res));
 }
@@ -83,7 +98,7 @@ export async function fetchPasteMeta(id) {
 export async function consumePaste(id) {
   let url;
   try {
-    url = `/api/paste/${encodeURIComponent(id)}/consume`;
+    url = `/api/paste/${encodeURIComponent(id)}/consume?ext=1`;
   } catch {
     throw new ApiError('Could not prepare the consume request.', 0, 'not-sent');
   }

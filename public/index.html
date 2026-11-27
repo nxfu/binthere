@@ -175,7 +175,8 @@
                     <p class="eyebrow">private by design</p>
                     <h1 class="title">Say it once. <span class="title-em">Sealed.</span></h1>
                     <p class="subtitle">
-                        Your note stays yours. Read once, then self-destructs.
+                        Your note stays yours. Read a limited number of
+                        times, then self-destructs.
                     </p>
                 </div>
 
@@ -259,6 +260,60 @@
                     </div>
                 </div>
 
+                <div class="create-opts reveal d3">
+                    <label class="opt">
+                        <span class="opt-label">Views</span>
+                        <input
+                            type="number"
+                            id="views-input"
+                            min="1"
+                            step="1"
+                            value="1"
+                            inputmode="numeric"
+                            aria-label="How many times the note can be read"
+                        />
+                    </label>
+                    <label class="opt">
+                        <span class="opt-label">Expires after</span>
+                        <span class="opt-ttl">
+                            <input
+                                type="number"
+                                id="ttl-value"
+                                min="1"
+                                step="1"
+                                value="24"
+                                inputmode="numeric"
+                                aria-label="Time until the note auto-deletes"
+                            />
+                            <select id="ttl-unit" aria-label="Expiry unit">
+                                <option value="60">minutes</option>
+                                <option value="3600" selected>hours</option>
+                                <option value="86400">days</option>
+                            </select>
+                        </span>
+                    </label>
+                    <label class="opt">
+                        <span class="opt-label">Create token</span>
+                        <input
+                            type="password"
+                            id="create-token"
+                            autocomplete="off"
+                            placeholder="Owner only"
+                            aria-label="Owner create token"
+                        />
+                    </label>
+                    <label class="opt">
+                        <span class="opt-label">Note</span>
+                        <input
+                            type="text"
+                            id="note-input"
+                            autocomplete="off"
+                            placeholder="Optional — shown in your admin list"
+                            aria-label="Optional label shown only in your admin list"
+                        />
+                    </label>
+                </div>
+
                 <div
                     class="features reveal d3"
                     role="list"
@@ -268,9 +323,9 @@
                     <span class="feat" role="listitem"
                         >End-to-end encrypted</span
                     >
-                    <span class="feat" role="listitem">One-time view</span>
+                    <span class="feat" role="listitem">Limited views</span>
                     <span class="feat" role="listitem"
-                        >Auto-deletes in 24 hours</span
+                        >Auto-deletes on expiry</span
                     >
                 </div>
 
@@ -675,3 +730,4 @@
         <div id="toast" role="status" aria-live="polite"></div>
     </body>
 </html>
+

@@ -52,12 +52,49 @@ function initCreate() {
   const sendTxt = createBtn.querySelector('.send-txt');
   const msg = $('#create-msg');
 
+  // Owner create token (custom fork): remembered for the tab session only,
+  // sent as a header on create. Empty is fine when the gate is disabled.
+  const tokenInput = $('#create-token');
+  const TOKEN_KEY = 'binthere-create-token';
+  if (tokenInput) {
+    try { tokenInput.value = sessionStorage.getItem(TOKEN_KEY) || ''; } catch { /* private mode */ }
+    tokenInput.addEventListener('input', () => {
+      try { sessionStorage.setItem(TOKEN_KEY, tokenInput.value); } catch { /* ignore */ }
+    });
+  }
+  const createToken = () => (tokenInput ? tokenInput.value.trim() : '');
+
+  // Free-form view budget + TTL (custom fork). Validated visibly here and
+  // again server-side (env-tunable caps); never silently clamped. The
+  // optional note is an owner label for the admin list only — it travels
+  // beside the paste, never inside the encryption.
+  const readOptions = () => {
+    const viewsEl = $('#views-input');
+    const ttlEl = $('#ttl-value');
+    const unitEl = $('#ttl-unit');
+    const noteEl = $('#note-input');
+    const views = viewsEl ? Number(viewsEl.value) : 1;
+    const ttlValue = ttlEl ? Number(ttlEl.value) : 24;
+    const unit = unitEl ? Number(unitEl.value) : 3600;
+    // Code-point-aware cap (mirrors the server's sanitizeNote): a plain
+    // slice(0, 100) counts UTF-16 code units and can split a surrogate
+    // pair; the input also has no maxlength for the same reason.
+    const note = noteEl ? [...noteEl.value.trim()].slice(0, 100).join('') : '';
+    if (!Number.isInteger(views) || views < 1) return { error: 'Views must be a whole number of 1 or more.' };
+    if (!Number.isFinite(ttlValue) || ttlValue <= 0 || !Number.isInteger(ttlValue)) {
+      return { error: 'Expiry must be a whole number of 1 or more.' };
+    }
+    return { views, ttlSeconds: ttlValue * unit, note };
+  };
+
   const requestCreate = () => {
     if (createBtn.disabled) return;
     if (!$('#editor').value.trim()) { showMsg(msg, 'Type something first.'); $('#editor').focus(); return; }
+    const opts = readOptions();
+    if (opts.error) { showMsg(msg, opts.error); return; }
     msg.hidden = true;
-    if (pwRequired) openPasswordModal((password) => submitPaste(password));
-    else submitPaste('');
+    if (pwRequired) openPasswordModal((password) => submitPaste(password, opts));
+    else submitPaste('', opts);
   };
   createBtn.addEventListener('click', requestCreate);
   // Editor convention: Ctrl/Cmd+Enter submits without leaving the textarea.
@@ -65,9 +102,9 @@ function initCreate() {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); requestCreate(); }
   });
 
-  // Every note is one-time view and auto-deletes within 24h. The API enforces
-  // this lifecycle for all new pastes; old links remain readable.
-  async function submitPaste(password) {
+  // Every note is burn-after-read with a chosen view budget and TTL; the API
+  // enforces the ranges. Old links remain readable.
+  async function submitPaste(password, opts = { views: 1, ttlSeconds: 86400 }) {
     createBtn.disabled = true;
     const label = sendTxt ? sendTxt.textContent : '';
     // Press → the arrow leaves the button (`.sending`), then the composer follows
@@ -90,8 +127,10 @@ function initCreate() {
         text: $('#editor').value,
         password,
         fmt,
+        views: opts.views,
+        ttlSeconds: opts.ttlSeconds,
       });
-      const { id, deletetoken } = await createPaste(body);
+      const { id, deletetoken } = await createPaste(body, createToken(), opts.note || '');
       const url = `${location.origin}/p/${id}#${fragment}`;
       clearTimeout(relabel);
       if (arrowGone) await arrowGone; // never hand over ahead of the arrow
@@ -101,7 +140,9 @@ function initCreate() {
       // served its purpose; don't leave it in the (now hidden) textarea. On any
       // failure it is deliberately kept — the user must not lose their note.
       $('#editor').value = '';
-      showSuccess({ id, deletetoken, url, isBurn: true });
+      const noteEl = $('#note-input');
+      if (noteEl) noteEl.value = '';
+      showSuccess({ id, deletetoken, url, isBurn: true, views: opts.views });
     } catch (e) {
       clearTimeout(relabel);
       createBtn.classList.remove('sending'); // the arrow glides back in
@@ -206,21 +247,22 @@ function openPasswordModal(onSubmit) {
   $('#pw-modal-dialog').focus();
 }
 
-function showSuccess({ id, deletetoken, url, isBurn }) {
+function showSuccess({ id, deletetoken, url, isBurn, views = 1 }) {
   showView('success');
   $('#paste-url').textContent = url;
   if (isBurn) {
-    $('#success-note').textContent =
-      'Anyone with this link can read the note once.';
+    $('#success-note').textContent = views > 1
+      ? `Anyone with this link can read the note up to ${views} times.`
+      : 'Anyone with this link can read the note once.';
   }
   renderQr(url);
 
   $('#copy-url').onclick = async () => {
     flashCopied($('#copy-url'), (await copyText(url)) ? 'copied' : 'failed');
   };
-  // Both irreversible actions are two-step: opening a one-time link consumes it,
+  // Both irreversible actions are two-step: opening the link spends a view,
   // and delete is permanent. A stray click must not kill a note about to be shared.
-  armConfirm($('#open-link'), 'Uses the one view — open?', () => { location.href = url; });
+  armConfirm($('#open-link'), 'Uses one view — open?', () => { location.href = url; });
   $('#another').onclick = () => { location.href = '/'; };
 
   const delBtn = $('#delete-btn');
@@ -328,8 +370,13 @@ async function initBurnView(id, fragment) {
     // Password-protected: prompt + verify against the wrapped key BEFORE consuming.
     promptPasswordBurn(id, fragment, head);
   } else {
-    // No password: an explicit "reveal" click is the consent to burn it.
-    status('This note can only be viewed once.', false, { reveal: true });
+    // No password: an explicit "reveal" click is the consent to spend a view.
+    const left = head.meta.viewsLeft;
+    status(
+      Number.isInteger(left) && left > 1
+        ? `This note can be viewed ${left} more times.`
+        : 'This note can only be viewed once.',
+      false, { reveal: true });
     const revealBtn = $('#reveal-burn');
     revealBtn.disabled = false;
     // When the countdown hits zero the note is gone server-side — leaving an
@@ -378,9 +425,14 @@ async function consumeBurn(id, head, cek) {
       throw new Error('head mismatch');
     }
     const result = await decryptContent({ adata: paste.adata, ct: paste.ct, cek });
-    // The note is consumed; drop the key from the address bar so a reload or a
-    // shared screenshot of the URL doesn't carry a now-useless (but real) secret.
-    if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+    // Once the view budget is exhausted the note is gone; drop the key from
+    // the address bar so a reload or a shared screenshot of the URL doesn't
+    // carry a now-useless (but real) secret. While views remain, keep the
+    // link intact so it can be opened again (each open spends another view).
+    const leftAfter = paste.meta.viewsLeft;
+    if ((!Number.isInteger(leftAfter) || leftAfter <= 0) && location.hash) {
+      history.replaceState(null, '', location.pathname + location.search);
+    }
     renderPaste(paste, result);
   } catch {
     status('Could not decrypt this note. The link may be corrupted or altered.', true);
@@ -396,24 +448,30 @@ function promptPasswordNormal(paste, fragment) {
 function promptPasswordBurn(id, fragment, head) {
   wirePasswordScreen(true, async (password) => {
     // Verify the password against the peeked wrapped key WITHOUT consuming.
-    // Throws PasswordRequired / DecryptError, leaving the paste intact.
+    // Throws PasswordRequired / DecryptError, leaving the paste (and its view
+    // budget) intact.
     const cek = await deriveContentKey({ adata: head.adata, wk: head.wk, fragment, password });
-    // Verified → the one destructive read, reusing the already-unwrapped CEK
+    // Verified → spend one view, reusing the already-unwrapped CEK
     // (no second 310k-iteration PBKDF2 run).
     await consumeBurn(id, head, cek);
-  });
+  }, head.meta);
 }
 
 // Shared password screen. `verify(password)` throws on a bad/empty password
 // (paste untouched) and otherwise transitions the view itself.
-function wirePasswordScreen(isBurn, verify) {
+function wirePasswordScreen(isBurn, verify, meta = null) {
   showView('password');
   wirePeek(['#decrypt-password', '#peek2']);
   const sub = $('#password-subtitle');
   if (sub) {
-    sub.textContent = isBurn
-      ? 'This single-use note is password-protected. It is destroyed only once the correct password unlocks it.'
-      : 'This note is protected by a password in addition to the key in the link.';
+    if (isBurn) {
+      const left = meta?.viewsLeft;
+      sub.textContent = Number.isInteger(left) && left > 1
+        ? `This note is password-protected and can be viewed ${left} more times. A view is spent only once the correct password unlocks it.`
+        : 'This single-use note is password-protected. It is destroyed only once the correct password unlocks it.';
+    } else {
+      sub.textContent = 'This note is protected by a password in addition to the key in the link.';
+    }
   }
   const input = $('#decrypt-password');
   const btn = $('#decrypt-btn');
@@ -498,14 +556,20 @@ function renderPaste(paste, result) {
   const isCode = result.fmt === 'code' || (result.fmt === 'plaintext' && language !== 'text' && language !== 'markdown')
     || (result.fmt === 'plaintext' && looksLikeCode(result.text));
 
-  // Pills: (code|markdown) · (one-time view). Plain text gets no kind pill —
-  // it's the default and adds nothing. No expiry pill either: an opened note is
-  // already consumed, so "expires in 24h" would be misleading.
+  // Pills: (code|markdown) · (view budget). Plain text gets no kind pill —
+  // it's the default and adds nothing.
   const pills = $('#paste-pills');
   pills.textContent = '';
   if (isMarkdown) pills.appendChild(pill('markdown'));
   else if (isCode) pills.appendChild(pill('code'));
-  if (result.bar) pills.appendChild(pill('one-time view · now deleted', 'bad'));
+  if (result.bar) {
+    const left = paste.meta?.viewsLeft;
+    if (Number.isInteger(left) && left > 0) {
+      pills.appendChild(pill(`viewed · ${left} view${left === 1 ? '' : 's'} left`));
+    } else {
+      pills.appendChild(pill('views used up · now deleted', 'bad'));
+    }
+  }
 
   // Content (DOM construction only).
   const container = $('#paste-content');
@@ -659,18 +723,25 @@ function stopExpiryTimer() {
   if (box) { box.hidden = true; box.classList.remove('ending'); }
 }
 
-// `meta.created` (unix seconds) is set by the server on create and echoed in the
-// peek response; `expire` maps to a fixed TTL. A note with no expiry (never) or
-// missing created gets no timer rather than a bogus one. `onExpire` fires once
-// when the countdown reaches zero (possibly synchronously, if already past).
+// The server attaches `expiresAt` (unix seconds) to burn heads; fall back to
+// created + ttlSeconds (custom) or created + EXPIRE_SECONDS[expire] (legacy)
+// for older responses. A note with no expiry gets no timer rather than a
+// bogus one. `onExpire` fires once when the countdown reaches zero
+// (possibly synchronously, if already past).
 function startExpiryTimer(meta, onExpire) {
   const box = $('#status-timer');
   const clock = $('#status-timer-clock');
   if (!box || !clock || !meta) return;
-  const ttl = EXPIRE_SECONDS[meta.expire] ?? 0;
-  if (ttl <= 0 || !Number.isInteger(meta.created)) return;
+  let expireAtSec = 0;
+  if (Number.isInteger(meta.expiresAt) && meta.expiresAt > 0) {
+    expireAtSec = meta.expiresAt;
+  } else if (Number.isInteger(meta.created)) {
+    const ttl = Number.isInteger(meta.ttlSeconds) ? meta.ttlSeconds : (EXPIRE_SECONDS[meta.expire] ?? 0);
+    if (ttl > 0) expireAtSec = meta.created + ttl;
+  }
+  if (expireAtSec <= 0) return;
 
-  const expireAt = (meta.created + ttl) * 1000;
+  const expireAt = expireAtSec * 1000;
   let expired = false;
   const render = () => {
     const left = Math.max(0, expireAt - Date.now());
@@ -707,6 +778,7 @@ function showMsg(el, message) {
 
 function friendlyError(e) {
   if (e instanceof ApiError) {
+    if (e.status === 401) return 'Create token missing or incorrect — only the owner can create links.';
     if (e.status === 429) return 'Too many pastes from your network — please wait a moment.';
     if (e.status === 413) return 'That document is too large.';
     return e.message || 'Server error. Please try again.';
@@ -714,3 +786,4 @@ function friendlyError(e) {
   if (e && /too large/.test(e.message || '')) return 'That document is too large (1 MiB max).';
   return 'Something went wrong. Please try again.';
 }
+

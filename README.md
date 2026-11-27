@@ -6,7 +6,7 @@
 
 <h1 align="center"><strong>Say it once. <em>Sealed.</em></strong></h1>
 
-<p align="center">Zero-knowledge, end-to-end encrypted notes that disappear after one read.</p>
+<p align="center">Zero-knowledge, end-to-end encrypted notes that disappear after a limited number of reads.</p>
 
 <p align="center">
   <a href="https://binthere.gaury.dev">Try it live</a> ·
@@ -17,8 +17,10 @@
 
 </div>
 
+[English](./README.md) | [简体中文](./README.zh-CN.md)
+
 binthere is a zero-knowledge, end-to-end encrypted pastebin. Write a note, get a link,
-share it — and the note self-destructs the moment it's read. Your browser encrypts
+share it — and the note self-destructs once it has been read the allowed number of times. Your browser encrypts
 everything with AES-256-GCM **before** it leaves your device, so the server only ever holds
 ciphertext it can't read. Think of it as a self-destructing envelope for text: secrets,
 credentials, a private message, a snippet of code.
@@ -31,6 +33,19 @@ credentials, a private message, a snippet of code.
   <a href="./eslint.config.js"><img alt="ESLint" height="28" src="https://ziadoua.github.io/m3-Markdown-Badges/badges/ESLint/eslint3.svg"></a>
 </p>
 
+## Differences from upstream (nxfu/binthere)
+
+This repository is a modified version of [nxfu/binthere](https://github.com/nxfu/binthere). The table below lists every difference; everything else behaves exactly as upstream.
+
+| Aspect | Upstream (nxfu/binthere) | This fork |
+| --- | --- | --- |
+| View count | Fixed: one read, then burned | Free-form number (1..1000; cap adjustable via the `MAX_VIEWS` env var). Counting is atomic in the Durable Object; the note is destroyed only once the view limit is reached |
+| Expiry | Fixed: 24 hours | Free-form (minutes / hours / days), from 60 seconds to 30 days (bounds adjustable via `MIN_TTL_SECONDS` / `MAX_TTL_SECONDS`); the default is still 24 hours |
+| Create gate | Anyone can create pastes | Optional owner token: with the `CREATE_TOKEN_SHA256` secret set, creation requires an `X-Create-Token` header; without it, creation stays open exactly as upstream |
+| Owner admin page | None | `/admin` lists all your links across devices (views left, expiry) with one-click revoke. The server stores only a metadata index (KV `idx:` records) — never contents or keys. Admin endpoints reject every request while no token secret is set. Note: the list shows metadata only, not recoverable share links — keep the original links to open contents on another device. Links created before the metadata index existed are not listed |
+| Notes (labels) | None | An optional note (≤ 100 characters) can be attached at creation to tell links apart; stored in plain text on the server as a label only, editable later from the admin page |
+| Encryption format | Format v1 + AAD | Identical to upstream — existing links keep working. Opening a link still fetches only the cover info; content is retrieved only on an explicit confirm, so previews and crawlers never burn a view |
+
 ## Why binthere?
 
 binthere is a clean-room rebuild inspired by [PrivateBin](https://privatebin.info)'s
@@ -41,8 +56,9 @@ server to maintain.
 
 - **No accounts or user tracking.** binthere keeps only an anonymous aggregate count of
   successfully created pastes. It stores no visitor or paste identifiers for this count.
-- **Nobody can recover a lost link.** Not even the operator — there is no key to look up and
-  no index of pastes. The link is the only copy of the key, by design.
+- **Nobody can recover a lost link.** Not even the operator — there is no key to look up. The
+  link is the only copy of the key, by design. (The server keeps an owner-only metadata index
+  for the admin page, but it holds no contents and no keys.)
 - **Honest limits.** The server still sees IPs, timings, and ciphertext sizes (it's private,
   not anonymous), and like all in-browser crypto it trusts the code the site serves — the
   full threat model is in [`SECURITY.md`](./SECURITY.md) and summarized under
@@ -59,11 +75,11 @@ URL fragment — the part after `#` — which browsers never send to any server.
 ```mermaid
 flowchart TD
     A([You write a note]) --> B[Your browser locks it<br/>before it leaves your device]
-    B -->|locked note only| C[(Server stores it<br/>for up to 24 hours)]
+    B -->|locked note only| C[(Server stores it<br/>until expiry or view limit)]
     B -->|the secret key stays here| D[Share link]
     C --> E[Recipient opens the link]
     D --> E
-    E --> F([Their browser unlocks the note<br/>and the server deletes its copy])
+    E --> F([Their browser unlocks the note<br/>and the server counts the read])
 ```
 
 1. **You write a note.** Your browser generates a random 256-bit key and encrypts the note
@@ -77,9 +93,11 @@ flowchart TD
 4. **The recipient opens it.** Their browser fetches the ciphertext, reads the key from the
    fragment, and decrypts locally. The server never sees plaintext at any point.
 
-Every note is **one-time view**: the first reader atomically consumes it (exactly one winner,
-even under simultaneous clicks — a Durable Object guarantees it), and everyone after gets
-`410 Gone`. Unread notes self-delete after 24 hours regardless.
+By default every note is still **one-time view** with a **24-hour** expiry, but both are
+free-form: set any view count (1..1000) and any expiry (60 seconds..30 days) at creation.
+Reads are consumed atomically (a Durable Object guarantees the count is exact, even under
+simultaneous clicks); once the view limit is reached, everyone after gets `410 Gone`. Unread
+notes self-delete when their expiry passes.
 
 ## Features
 
@@ -87,15 +105,23 @@ even under simultaneous clicks — a Durable Object guarantees it), and everyone
 | --- | --- |
 | Zero-knowledge | Encryption and decryption happen only on your device (browser or [CLI](#cli)); the server stores opaque ciphertext and non-secret metadata. |
 | Optional password | Layered on top of the URL key — neither alone can decrypt. |
-| Burn-after-read | Every note is a strict, atomic single-consumer read (Durable Object). The first reader gets it; everyone else gets `410 Gone`. |
-| Auto-expiry | Notes delete themselves after 24 hours. |
+| Burn-after-read | Notes allow a free-form number of reads (default 1, up to 1000), consumed atomically in the Durable Object; once the limit is reached, everyone else gets `410 Gone`. |
+| Auto-expiry | Notes delete themselves at a free-form expiry (default 24 hours; 60 seconds..30 days). |
+| Create-token gate (optional) | Set the `CREATE_TOKEN_SHA256` secret and only requests carrying a matching `X-Create-Token` header can create pastes. Unset, creation stays open. |
+| Owner admin page | `/admin` lists your links across devices with views left and expiry, and can revoke any of them. The server keeps only a metadata index — no contents, no keys. |
+| Notes | Attach a short plain-text label (≤ 100 characters) at creation to tell links apart; editable from the admin page. |
 | Safe rendering | Auto-detected syntax highlighting and a safe Markdown subset (no raw HTML, sanitized links). All rendering is DOM-construction only — never `innerHTML`. |
 | Sharing tools | Copy link, QR code, delete link. |
 | Minimal surface | Strict CSP, self-hosted fonts, no third-party scripts, no analytics, no accounts. |
 
 > [!NOTE]
-> The wire format supports the full expiry range (5 minutes–1 year or never) and non-burn
-> pastes; the current UI simply fixes 24 h + one-time view, so older links keep working.
+> The wire format itself accepts the full expiry range (5 minutes–1 year or never) and
+> non-burn pastes, but this fork's create API is stricter: every new paste must be
+> burn-after-read with an integer TTL within 60s..30d (env-tunable), so `never`,
+> non-burn, and >30-day pastes cannot be created through the API. Within those bounds
+> the UI exposes free-form view counts and expiry
+> (see [Differences from upstream](#differences-from-upstream-nxfubinthere)); older links keep
+> working.
 
 ## How it compares
 
@@ -139,7 +165,7 @@ CI runs lint, a byte-for-byte test-vector diff, and the full suite.
 An official command-line client lives in [`cli/`](./cli) and is published to npm as
 [`binthere`](https://www.npmjs.com/package/binthere). It implements the same frozen protocol
 as the web client — encryption happens locally, only ciphertext is uploaded, and notes have
-the same **one read / 24 hours** lifecycle as the website. Zero runtime dependencies
+the same default **one read / 24 hours** lifecycle as the website. Zero runtime dependencies
 (Node ≥ 20 built-ins only).
 
 ```bash
@@ -190,11 +216,14 @@ npm run deploy           # creates the Worker, Durable Object, and rate limiter
   [`tools/opengraph.html`](./tools/opengraph.html) and re-render with `node tools/render-og.mjs`
   (needs a local Chrome/Chromium; pass `--browser <path>` or set `$CHROME` if it isn't found).
 - `npm run dev` works with placeholder KV ids — KV is emulated locally.
-- **Cost note on `never` expiry:** the official clients always create 24-hour one-time
-  notes, but the wire format (and the API) accepts `expire: "never"`. Such a paste is
-  stored with no KV TTL and no Durable Object alarm — an unread burn note kept forever
-  carries a small perpetual cost under SQLite-backed DO storage billing. If you expose
-  `never` to third-party clients, decide whether to cap it or accept the standing cost.
+- Optional owner gate: set the `CREATE_TOKEN_SHA256` secret (the SHA-256 hex of your create
+  token) to require an `X-Create-Token` header for paste creation and to enable the `/admin`
+  page. The view-count cap and expiry bounds (`MAX_VIEWS`, `MIN_TTL_SECONDS`,
+  `MAX_TTL_SECONDS`) can be tuned in `wrangler.toml`.
+- **No `never` expiry via the API:** creation requires an integer TTL within the
+  configured bounds (`MIN_TTL_SECONDS`..`MAX_TTL_SECONDS`, default 60s..30d). The legacy
+  `expire: "never"` value maps to a TTL of 0 and is rejected with `400`, so the API
+  cannot create indefinite records (no no-TTL / no-alarm pastes).
 
 </details>
 
@@ -205,7 +234,7 @@ npm run deploy           # creates the Worker, Durable Object, and rate limiter
 | Static Assets (`public/`) | SPA frontend, served directly by the Worker |
 | Worker (`src/index.js`) | `/api/*` paste API — stores ciphertext, enforces size/rate/burn |
 | KV (`PASTES`) | Normal pastes, with native TTL expiry |
-| Durable Object (`BurnPaste`) | Burn-after-read pastes, atomic single-consumer |
+| Durable Object (`BurnPaste`) | Burn-after-read pastes, atomic view counting |
 | Rate Limiting binding | Abuse mitigation on paste creation (fail-open) |
 
 See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the request path and [`SPEC.md`](./SPEC.md) for
@@ -219,11 +248,15 @@ the key fragment never appears in any request. Full details in [`SPEC.md`](./SPE
 
 | Method & path | Purpose | Success | Errors |
 | --- | --- | --- | --- |
-| `POST /api/paste` | Create a paste (format v1 JSON) | `201` | `400` invalid · `413` too large · `429` rate-limited |
-| `GET /api/paste/:id` | Fetch a paste (consumes a burn) | `200` | `404` missing/expired · `410` burned |
+| `POST /api/paste` | Create a paste (format v1 JSON); requires `X-Create-Token` when the create-token gate is on | `201` | `400` invalid · `401` bad/missing create token (gate on) · `413` too large · `429` rate-limited |
+| `GET /api/paste/:id` | Fetch a paste (burn ids: head only, never consumes) | `200` | `404` missing/expired · `410` burned/expired |
 | `GET /api/paste/:id?meta=1` | Peek a burn head without consuming | `200` | `404` missing · `410` burned/expired |
+| `POST /api/paste/:id/consume` | Consume one view of a burn paste; requires the `X-Burn-Intent: consume` header | `200` | `400` missing header · `403` cross-site · `404` missing/non-burn · `410` burned/expired |
 | `DELETE /api/paste/:id` | Delete, with `X-Delete-Token` header | `200` | `400` missing token · `403` wrong token · `404` missing |
 | `GET /api/stars` | Repo star count for the topbar badge (not part of the paste protocol) | `200` | `502` GitHub unavailable |
+| `GET /api/admin/list` | List link metadata (views left, expiry, note); requires `X-Create-Token` | `200` | `401` bad/missing token, or `CREATE_TOKEN_SHA256` unset |
+| `POST /api/admin/revoke` | Revoke a link immediately; requires `X-Create-Token` | `200` | `401` bad/missing token, or `CREATE_TOKEN_SHA256` unset |
+| `POST /api/admin/note` | Set/edit a link's note; requires `X-Create-Token` | `200` | `401` bad/missing token, or `CREATE_TOKEN_SHA256` unset |
 
 The delete token travels in a header — never in the URL — so it cannot land in request logs;
 the server stores and compares only its SHA-256.
@@ -266,8 +299,10 @@ Most of these are deliberate scope choices, not bugs. Know them before relying o
 - **No protection from a compromised deployment.** Decryption runs in JavaScript the server
   delivers, so a malicious or hacked host could serve code that leaks your key. In-browser E2E
   encryption trusts the origin ([`SECURITY.md`](./SECURITY.md) §4).
-- **Lose the link, lose the note.** No accounts, no server-side index — the id + key exist only
-  in the URL you share. Nobody, including you, can recover or list pastes.
+- **Lose the link, lose the note.** No accounts — the decryption key exists only in the
+  URL you share, and nobody, including you, can recover a lost link. For the admin page
+  the server does keep an owner-only metadata index (id, timestamps, view counts, notes),
+  but it holds no contents and no keys, so it cannot bring a note back.
 
 <details>
 <summary>More limitations</summary>
@@ -278,8 +313,9 @@ Most of these are deliberate scope choices, not bugs. Know them before relying o
   ([`SPEC.md`](./SPEC.md) §8 documents the trade-off).
 - **Password KDF is PBKDF2-SHA256** (310k iterations), not a memory-hard KDF. Argon2id is on
   the roadmap.
-- **The UI fixes expiry at 24 h and one-time view.** The wire format supports more; the
-  controls are just hidden.
+- **View counts and expiry are free-form within bounds.** The UI accepts any view count
+  (1..`MAX_VIEWS`) and any expiry (`MIN_TTL_SECONDS`..`MAX_TTL_SECONDS`); values outside the
+  configured range are rejected.
 - **English only.**
 - **The rate limiter fails open** — it is abuse mitigation, not access control.
 - **Canonical URLs are hardcoded** to the origin deployment; update them when self-hosting
@@ -302,17 +338,18 @@ out in [`SECURITY.md`](./SECURITY.md) §3.
 <details>
 <summary>I lost the link — can the note be recovered?</summary>
 
-No. There are no accounts and no server-side index; the paste id and decryption key exist
-only in the URL. Without it, the ciphertext is unrecoverable — by design.
+No. There are no accounts; the decryption key exists only in the URL. The
+server's owner-only metadata index (timestamps, view counts, notes) holds no contents and no
+keys, so without the link the ciphertext is unrecoverable — by design.
 
 </details>
 
 <details>
 <summary>Why does my link say "expired or was already opened"?</summary>
 
-Every note is one-time view: the first reader atomically consumes it, and everyone after
-(including you, if you open your own link first) gets `410 Gone`. Notes also self-delete
-after 24 hours even if never opened.
+The note's view limit was reached or it expired. Reads are consumed atomically, so once the
+allowed number of reads is used up (including by you, if you open your own link), everyone
+after gets `410 Gone`. Notes also self-delete when their expiry passes, even if never opened.
 
 </details>
 

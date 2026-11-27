@@ -1,7 +1,9 @@
-// burn-do.js — BurnPaste Durable Object: strict, single-consumer burn-after-read
-// (SPEC.md §8). One DO instance per paste id. Because a DO is single-threaded and
-// every mutation runs inside blockConcurrencyWhile, the read-and-delete is atomic:
-// the first consumer gets the ciphertext, everyone else gets "gone".
+// burn-do.js — BurnPaste Durable Object: strict burn-after-read with a
+// per-paste view budget (custom fork; upstream was strictly single-consumer).
+// One DO instance per paste id. Because a DO is single-threaded and every
+// mutation runs inside blockConcurrencyWhile, the read-and-decrement (and the
+// final read-and-delete) is atomic: concurrent readers can never exceed the
+// view budget, and the last reader destroys the record.
 
 import { DurableObject } from 'cloudflare:workers';
 import { verifyToken } from './lib/ids.js';
@@ -26,13 +28,15 @@ export class BurnPaste extends DurableObject {
   /**
    * Store a burn paste. Returns false if this instance already holds one (an id
    * collision), so the caller can regenerate the id. `paste` excludes `dth`,
-   * which is stored separately and never returned to a reader.
+   * which is stored separately and never returned to a reader. `views` is the
+   * total read budget (>= 1; the Worker validates the range).
    */
-  async create(paste, dth, ttlSec) {
+  async create(paste, dth, ttlSec, views = 1) {
     return this.ctx.blockConcurrencyWhile(async () => {
       if (await this.ctx.storage.get(KEY)) return false;
       const exp = ttlSec > 0 ? Date.now() + ttlSec * 1000 : 0;
-      await this.ctx.storage.put(KEY, { paste, dth, exp });
+      const viewsLeft = Number.isInteger(views) && views >= 1 ? views : 1;
+      await this.ctx.storage.put(KEY, { paste, dth, exp, viewsLeft });
       if (exp > 0) await this.ctx.storage.setAlarm(exp);
       return true;
     });
@@ -40,27 +44,55 @@ export class BurnPaste extends DurableObject {
 
   /**
    * Non-consuming metadata read: returns the paste head (everything EXCEPT the
-   * ciphertext `ct`) so the client can verify a password before the single
-   * destructive read. Does not delete. The content itself is never released here.
+   * ciphertext `ct`) so the client can verify a password before a destructive
+   * read. Does not delete and does not spend a view.
+   *
+   * `extended` opts into the fork's server-attached read fields (`viewsLeft`
+   * and `expiresAt`, unix seconds, 0 = none) in the head's meta, so the
+   * reader UI can show the remaining budget and countdown. The default
+   * (false) returns the stored meta verbatim — the exact upstream response
+   * shape — because pre-fork clients validate meta against a strict key
+   * allowlist and would reject (and, on consume, lose) a paste whose meta
+   * gained fields they don't know.
    */
-  async peek() {
+  async peek(extended = false) {
     return this.ctx.blockConcurrencyWhile(async () => {
       const rec = await this.ctx.storage.get(KEY);
       if (!rec) return { status: 'gone' };
       if (rec.exp && Date.now() > rec.exp) { await this.#purge(); return { status: 'gone' }; }
       const p = rec.paste;
-      return { status: 'ok', head: { v: p.v, wk: p.wk, adata: p.adata, meta: p.meta } };
+      return {
+        status: 'ok',
+        head: { v: p.v, wk: p.wk, adata: p.adata, meta: this.#meta(rec, extended) },
+      };
     });
   }
 
-  /** Atomically return-and-delete. { status:'ok', paste } once, then 'gone'. */
-  async consume() {
+  /**
+   * Atomically spend one view and return the paste. While views remain after
+   * this read the record (and its expiry alarm) is kept with the decremented
+   * budget; on the last view the record is purged before returning. With
+   * `extended`, the returned paste's meta carries `viewsLeft` (after this
+   * read) + `expiresAt`; without it the stored meta is returned verbatim
+   * (upstream shape — see peek()).
+   */
+  async consume(extended = false) {
     return this.ctx.blockConcurrencyWhile(async () => {
       const rec = await this.ctx.storage.get(KEY);
       if (!rec) return { status: 'gone' };
-      await this.#purge();
-      if (rec.exp && Date.now() > rec.exp) return { status: 'gone' };
-      return { status: 'ok', paste: rec.paste };
+      if (rec.exp && Date.now() > rec.exp) { await this.#purge(); return { status: 'gone' }; }
+      const left = Number.isInteger(rec.viewsLeft) && rec.viewsLeft >= 1 ? rec.viewsLeft : 1;
+      const after = left - 1;
+      const paste = {
+        ...rec.paste,
+        meta: this.#meta(rec, extended, after),
+      };
+      if (after > 0) {
+        await this.ctx.storage.put(KEY, { ...rec, viewsLeft: after });
+      } else {
+        await this.#purge();
+      }
+      return { status: 'ok', paste };
     });
   }
 
@@ -75,9 +107,39 @@ export class BurnPaste extends DurableObject {
     });
   }
 
+  /**
+   * Owner revoke via the admin API (custom fork): purge without a delete
+   * token. The Worker only calls this after verifying the owner's create
+   * token, so no per-paste credential is needed here. 'ok' | 'notfound'.
+   */
+  async destroy() {
+    return this.ctx.blockConcurrencyWhile(async () => {
+      const rec = await this.ctx.storage.get(KEY);
+      if (!rec) return { status: 'notfound' };
+      await this.#purge();
+      return { status: 'ok' };
+    });
+  }
+
   /** Alarm fires at expiry → drop the paste. */
   async alarm() {
     await this.#purge();
+  }
+
+  /**
+   * Response meta for peek/consume. Non-extended: the stored meta verbatim
+   * (upstream shape). Extended: stored meta plus the server-attached
+   * `viewsLeft` (`leftOverride` lets consume report the post-read budget)
+   * and `expiresAt`.
+   */
+  #meta(rec, extended, leftOverride) {
+    if (!extended) return rec.paste.meta;
+    const left = leftOverride ?? (Number.isInteger(rec.viewsLeft) && rec.viewsLeft >= 1 ? rec.viewsLeft : 1);
+    return {
+      ...rec.paste.meta,
+      viewsLeft: left,
+      expiresAt: rec.exp ? Math.floor(rec.exp / 1000) : 0,
+    };
   }
 
   async #purge() {
