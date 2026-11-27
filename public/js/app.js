@@ -76,7 +76,10 @@ function initCreate() {
     const views = viewsEl ? Number(viewsEl.value) : 1;
     const ttlValue = ttlEl ? Number(ttlEl.value) : 24;
     const unit = unitEl ? Number(unitEl.value) : 3600;
-    const note = noteEl ? noteEl.value.trim().slice(0, 100) : '';
+    // Code-point-aware cap (mirrors the server's sanitizeNote): a plain
+    // slice(0, 100) counts UTF-16 code units and can split a surrogate
+    // pair; the input also has no maxlength for the same reason.
+    const note = noteEl ? [...noteEl.value.trim()].slice(0, 100).join('') : '';
     if (!Number.isInteger(views) || views < 1) return { error: 'Views must be a whole number of 1 or more.' };
     if (!Number.isFinite(ttlValue) || ttlValue <= 0 || !Number.isInteger(ttlValue)) {
       return { error: 'Expiry must be a whole number of 1 or more.' };

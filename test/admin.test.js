@@ -1,7 +1,7 @@
 // admin.test.js — owner admin API (custom fork): KV index + list/revoke,
 // exercised in the real workerd runtime via vitest-pool-workers.
-import { env, SELF } from 'cloudflare:test';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { env, SELF, runInDurableObject } from 'cloudflare:test';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { encryptPaste } from '../public/js/crypto.js';
 import { hashToken } from '../src/lib/ids.js';
 import { idxKey } from '../src/lib/store.js';
@@ -334,5 +334,76 @@ describe('owner notes (plain-text labels in the admin index)', () => {
     // …and such a record can still receive a note afterwards.
     expect((await adminNote(id, '补上的备注')).status).toBe(200);
     expect(findIn(await listAll(), id).note).toBe('补上的备注');
+  });
+
+  it('one corrupt entry does not sink the whole list page', async () => {
+    const { id: badId } = await (await postPaste({ text: 'corrupt me', views: 1, ttlSeconds: 3600 })).json();
+    const { id: goodId } = await (await postPaste({ text: 'healthy', views: 2, ttlSeconds: 3600 })).json();
+
+    // Corrupt the DO record so peek() throws (no `paste` field): the
+    // list must still answer 200, mark this entry gone for this
+    // response, keep the healthy entry, and NOT prune the index (the
+    // failure may be transient).
+    const stub = env.BURN.get(env.BURN.idFromName(badId));
+    await runInDurableObject(stub, async (_instance, state) => {
+      await state.storage.put('rec', { dth: 'x', exp: 0, viewsLeft: 1 });
+    });
+
+    const res = await adminList();
+    expect(res.status).toBe(200);
+    const list = (await res.json()).pastes;
+    expect(findIn(list, badId)).toMatchObject({ gone: true, viewsLeft: 0 });
+    expect(findIn(list, goodId)).toMatchObject({ gone: false, viewsLeft: 2 });
+    expect(await env.PASTES.get(idxKey(badId))).not.toBeNull(); // not pruned
+  });
+
+  it('admin/note on a consumed paste is 404 and prunes the index', async () => {
+    const { id } = await (await postPaste({ text: 'spent', views: 1, ttlSeconds: 3600 })).json();
+    expect((await consume(id)).status).toBe(200); // paste gone; idx remains until a list prunes it
+    expect(await env.PASTES.get(idxKey(id))).not.toBeNull();
+
+    // The liveness check must refuse the edit instead of keeping (or
+    // resurrecting) an index record for a paste that no longer exists.
+    expect((await adminNote(id, '迟到的备注')).status).toBe(404);
+    expect(await env.PASTES.get(idxKey(id))).toBeNull();
+  });
+
+  it('admin/note on a corrupt index record (non-integer expiresAt) is 404 + pruned', async () => {
+    const { id } = await (await postPaste({ text: 'corrupt idx', views: 1, ttlSeconds: 3600 })).json();
+    const idx = JSON.parse(await env.PASTES.get(idxKey(id)));
+    idx.expiresAt = 'soon'; // corrupt: not an integer
+    await env.PASTES.put(idxKey(id), JSON.stringify(idx), { expirationTtl: 3600 });
+
+    expect((await adminNote(id, 'x')).status).toBe(404);
+    expect(await env.PASTES.get(idxKey(id))).toBeNull(); // dropped, not re-put with a guessed TTL
+  });
+
+  it('admin/list with a garbage cursor is a clean 400, not a 500', async () => {
+    // Production KV rejects a malformed cursor by throwing from list();
+    // miniflare tolerates it, so simulate the production rejection.
+    const spy = vi.spyOn(env.PASTES, 'list')
+      .mockRejectedValueOnce(new Error('Invalid cursor'));
+    try {
+      const res = await adminList(
+        { 'x-create-token': TOKEN },
+        `?cursor=${encodeURIComponent('not-a-real-cursor!!!')}`,
+      );
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toBe('Invalid cursor.');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('a storage failure with no cursor is a JSON {error} 500 (top-level catch)', async () => {
+    const spy = vi.spyOn(env.PASTES, 'list')
+      .mockRejectedValueOnce(new Error('KV unavailable'));
+    try {
+      const res = await adminList();
+      expect(res.status).toBe(500);
+      expect((await res.json()).error).toBe('Internal error.');
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

@@ -42,7 +42,7 @@ This repository is a modified version of [nxfu/binthere](https://github.com/nxfu
 | View count | Fixed: one read, then burned | Free-form number (1..1000; cap adjustable via the `MAX_VIEWS` env var). Counting is atomic in the Durable Object; the note is destroyed only once the view limit is reached |
 | Expiry | Fixed: 24 hours | Free-form (minutes / hours / days), from 60 seconds to 30 days (bounds adjustable via `MIN_TTL_SECONDS` / `MAX_TTL_SECONDS`); the default is still 24 hours |
 | Create gate | Anyone can create pastes | Optional owner token: with the `CREATE_TOKEN_SHA256` secret set, creation requires an `X-Create-Token` header; without it, creation stays open exactly as upstream |
-| Owner admin page | None | `/admin` lists all your links across devices (views left, expiry) with one-click revoke. The server stores only a metadata index (KV `idx:` records) — never contents or keys. Admin endpoints reject every request while no token secret is set. Note: the list shows metadata only, not recoverable share links — keep the original links to open contents on another device |
+| Owner admin page | None | `/admin` lists all your links across devices (views left, expiry) with one-click revoke. The server stores only a metadata index (KV `idx:` records) — never contents or keys. Admin endpoints reject every request while no token secret is set. Note: the list shows metadata only, not recoverable share links — keep the original links to open contents on another device. Links created before the metadata index existed are not listed |
 | Notes (labels) | None | An optional note (≤ 100 characters) can be attached at creation to tell links apart; stored in plain text on the server as a label only, editable later from the admin page |
 | Encryption format | Format v1 + AAD | Identical to upstream — existing links keep working. Opening a link still fetches only the cover info; content is retrieved only on an explicit confirm, so previews and crawlers never burn a view |
 
@@ -115,8 +115,11 @@ notes self-delete when their expiry passes.
 | Minimal surface | Strict CSP, self-hosted fonts, no third-party scripts, no analytics, no accounts. |
 
 > [!NOTE]
-> The wire format supports the full expiry range (5 minutes–1 year or never) and non-burn
-> pastes. This fork's UI exposes free-form view counts and expiry within the configured bounds
+> The wire format itself accepts the full expiry range (5 minutes–1 year or never) and
+> non-burn pastes, but this fork's create API is stricter: every new paste must be
+> burn-after-read with an integer TTL within 60s..30d (env-tunable), so `never`,
+> non-burn, and >30-day pastes cannot be created through the API. Within those bounds
+> the UI exposes free-form view counts and expiry
 > (see [Differences from upstream](#differences-from-upstream-nxfubinthere)); older links keep
 > working.
 
@@ -246,8 +249,9 @@ the key fragment never appears in any request. Full details in [`SPEC.md`](./SPE
 | Method & path | Purpose | Success | Errors |
 | --- | --- | --- | --- |
 | `POST /api/paste` | Create a paste (format v1 JSON); requires `X-Create-Token` when the create-token gate is on | `201` | `400` invalid · `401` bad/missing create token (gate on) · `413` too large · `429` rate-limited |
-| `GET /api/paste/:id` | Fetch a paste (consumes a burn) | `200` | `404` missing/expired · `410` burned |
+| `GET /api/paste/:id` | Fetch a paste (burn ids: head only, never consumes) | `200` | `404` missing/expired · `410` burned/expired |
 | `GET /api/paste/:id?meta=1` | Peek a burn head without consuming | `200` | `404` missing · `410` burned/expired |
+| `POST /api/paste/:id/consume` | Consume one view of a burn paste; requires the `X-Burn-Intent: consume` header | `200` | `400` missing header · `403` cross-site · `404` missing/non-burn · `410` burned/expired |
 | `DELETE /api/paste/:id` | Delete, with `X-Delete-Token` header | `200` | `400` missing token · `403` wrong token · `404` missing |
 | `GET /api/stars` | Repo star count for the topbar badge (not part of the paste protocol) | `200` | `502` GitHub unavailable |
 | `GET /api/admin/list` | List link metadata (views left, expiry, note); requires `X-Create-Token` | `200` | `401` bad/missing token, or `CREATE_TOKEN_SHA256` unset |

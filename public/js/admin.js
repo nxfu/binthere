@@ -156,7 +156,11 @@ async function load() {
       if (!data || !Array.isArray(data.pastes)) throw new Error('Malformed response.');
       pastes.push(...data.pastes);
       const next = typeof data.cursor === 'string' && data.cursor ? data.cursor : null;
-      if (next === cursor) throw new Error('Malformed response.'); // no-progress guard
+      // No-progress guard: only a repeated NON-NULL cursor is an error.
+      // The final page (incl. empty/single-page lists) returns next=null
+      // while cursor is also null on the first page — that must end the
+      // loop normally, not throw.
+      if (next !== null && next === cursor) throw new Error('Malformed response.');
       cursor = next;
     } while (cursor);
     pastes.sort((a, b) => (b.createdAt - a.createdAt)
@@ -187,7 +191,7 @@ async function revoke(id, btn) {
 
 form.addEventListener('submit', (event) => {
   event.preventDefault();
-  token = tokenInput.value;
+  token = tokenInput.value.trim(); // pasted tokens often carry stray whitespace
   tokenInput.value = '';
   if (!token) {
     setStatus('Enter your create token first.');
