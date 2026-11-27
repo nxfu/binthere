@@ -17,8 +17,16 @@ const postPaste = (body) =>
     body: JSON.stringify(body),
   });
 const getPaste = (id) => SELF.fetch(`${ORIGIN}/api/paste/${id}`);
+// Extended-meta variants (?ext=1): the fork's own clients opt into the
+// server-attached viewsLeft/expiresAt fields; plain requests keep the
+// exact upstream meta shape for pre-fork clients.
+const getPasteExt = (id) => SELF.fetch(`${ORIGIN}/api/paste/${id}?ext=1`);
 const consume = (id, headers = { 'x-burn-intent': 'consume' }) =>
   SELF.fetch(`${ORIGIN}/api/paste/${id}/consume`, { method: 'POST', headers });
+const consumeExt = (id) =>
+  SELF.fetch(`${ORIGIN}/api/paste/${id}/consume?ext=1`, {
+    method: 'POST', headers: { 'x-burn-intent': 'consume' },
+  });
 const deletePaste = (id, token) =>
   SELF.fetch(`${ORIGIN}/api/paste/${id}`, { method: 'DELETE', headers: { 'x-delete-token': token } });
 
@@ -34,7 +42,7 @@ describe('supported paste lifecycle', () => {
     const created = await postPaste(expiring);
     expect(created.status).toBe(201);
     const { id } = await created.json();
-    const head = await (await getPaste(id)).json();
+    const head = await (await getPasteExt(id)).json();
     expect(head.meta.viewsLeft).toBe(1);
     expect(head.meta.expiresAt).toBeGreaterThan(Math.floor(Date.now() / 1000) + 600000);
     const read = await consume(id);
@@ -174,19 +182,19 @@ describe('burn-after-read (Durable Object)', () => {
 
     // Plain GETs (previews/crawlers) return the head and spend nothing.
     for (let i = 0; i < 3; i++) {
-      const head = await (await getPaste(id)).json();
+      const head = await (await getPasteExt(id)).json();
       expect(head.ct).toBeUndefined();
       expect(head.meta.viewsLeft).toBe(3);
     }
 
     for (const leftAfter of [2, 1, 0]) {
-      const r = await consume(id);
+      const r = await consumeExt(id);
       expect(r.status).toBe(200);
       const paste = await r.json();
       expect(paste.meta.viewsLeft).toBe(leftAfter);
       expect((await decryptPaste({ paste, fragment })).text).toBe('thrice');
       if (leftAfter > 0) {
-        const head = await (await getPaste(id)).json();
+        const head = await (await getPasteExt(id)).json();
         expect(head.meta.viewsLeft).toBe(leftAfter);
       }
     }
@@ -209,10 +217,34 @@ describe('burn-after-read (Durable Object)', () => {
     const paste = { v: 1, ct: 'AA', wk: 'AA', adata: {}, meta: { ttlSeconds: 120, views: 5, created: 0 } };
     const stub = env.BURN.get(env.BURN.idFromName('bcustomttltest'));
     await stub.create(paste, dth, 120, 5);
-    expect((await stub.peek()).head.meta.viewsLeft).toBe(5);
+    expect((await stub.peek(true)).head.meta.viewsLeft).toBe(5);
     expect(await runDurableObjectAlarm(stub)).toBe(true);
     expect((await stub.peek()).status).toBe('gone');
     expect((await stub.consume()).status).toBe('gone');
+  });
+
+  it('legacy shape: without ?ext=1, peek/consume meta carries no server-attached fields', async () => {
+    const { body, fragment } = await encryptPaste({ text: 'legacy reader', views: 2, ttlSeconds: 3600 });
+    const { id } = await (await postPaste(body)).json();
+
+    // Pre-fork clients validate meta against a strict key allowlist; the
+    // default response must not gain viewsLeft/expiresAt.
+    const head = await (await getPaste(id)).json();
+    expect('viewsLeft' in head.meta).toBe(false);
+    expect('expiresAt' in head.meta).toBe(false);
+
+    const paste = await (await consume(id)).json();
+    expect('viewsLeft' in paste.meta).toBe(false);
+    expect('expiresAt' in paste.meta).toBe(false);
+    expect((await decryptPaste({ paste, fragment })).text).toBe('legacy reader');
+
+    // The same paste with ?ext=1 carries both fields (one view spent).
+    const headExt = await (await getPasteExt(id)).json();
+    expect(headExt.meta.viewsLeft).toBe(1);
+    expect(headExt.meta.expiresAt).toBeGreaterThan(Math.floor(Date.now() / 1000));
+    const pasteExt = await (await consumeExt(id)).json();
+    expect(pasteExt.meta.viewsLeft).toBe(0);
+    expect(Number.isInteger(pasteExt.meta.expiresAt)).toBe(true);
   });
 
   it('revoke (delete token) works mid-budget on a multi-view paste', async () => {
@@ -235,7 +267,7 @@ describe('burn-after-read (Durable Object)', () => {
 });
 
 describe('burn peek — verify password before the single read', () => {
-  const getMeta = (id) => SELF.fetch(`${ORIGIN}/api/paste/${id}?meta=1`);
+  const getMeta = (id) => SELF.fetch(`${ORIGIN}/api/paste/${id}?meta=1&ext=1`);
 
   it('peek returns the head without ciphertext and does NOT consume', async () => {
     const { body } = await encryptPaste({ text: 'peekable', bar: true });

@@ -42,7 +42,7 @@ This repository is a modified version of [nxfu/binthere](https://github.com/nxfu
 | View count | Fixed: one read, then burned | Free-form number (1..1000; cap adjustable via the `MAX_VIEWS` env var). Counting is atomic in the Durable Object; the note is destroyed only once the view limit is reached |
 | Expiry | Fixed: 24 hours | Free-form (minutes / hours / days), from 60 seconds to 30 days (bounds adjustable via `MIN_TTL_SECONDS` / `MAX_TTL_SECONDS`); the default is still 24 hours |
 | Create gate | Anyone can create pastes | Optional owner token: with the `CREATE_TOKEN_SHA256` secret set, creation requires an `X-Create-Token` header; without it, creation stays open exactly as upstream |
-| Owner admin page | None | `/admin` lists all your links across devices (views left, expiry) with one-click revoke. The server stores only a metadata index (KV `idx:` records) — never contents or keys. Admin endpoints reject every request while no token secret is set |
+| Owner admin page | None | `/admin` lists all your links across devices (views left, expiry) with one-click revoke. The server stores only a metadata index (KV `idx:` records) — never contents or keys. Admin endpoints reject every request while no token secret is set. Note: the list shows metadata only, not recoverable share links — keep the original links to open contents on another device |
 | Notes (labels) | None | An optional note (≤ 100 characters) can be attached at creation to tell links apart; stored in plain text on the server as a label only, editable later from the admin page |
 | Encryption format | Format v1 + AAD | Identical to upstream — existing links keep working. Opening a link still fetches only the cover info; content is retrieved only on an explicit confirm, so previews and crawlers never burn a view |
 
@@ -217,11 +217,10 @@ npm run deploy           # creates the Worker, Durable Object, and rate limiter
   token) to require an `X-Create-Token` header for paste creation and to enable the `/admin`
   page. The view-count cap and expiry bounds (`MAX_VIEWS`, `MIN_TTL_SECONDS`,
   `MAX_TTL_SECONDS`) can be tuned in `wrangler.toml`.
-- **Cost note on `never` expiry:** the official clients default to 24-hour one-time
-  notes, but the wire format (and the API) accepts `expire: "never"`. Such a paste is
-  stored with no KV TTL and no Durable Object alarm — an unread burn note kept forever
-  carries a small perpetual cost under SQLite-backed DO storage billing. If you expose
-  `never` to third-party clients, decide whether to cap it or accept the standing cost.
+- **No `never` expiry via the API:** creation requires an integer TTL within the
+  configured bounds (`MIN_TTL_SECONDS`..`MAX_TTL_SECONDS`, default 60s..30d). The legacy
+  `expire: "never"` value maps to a TTL of 0 and is rejected with `400`, so the API
+  cannot create indefinite records (no no-TTL / no-alarm pastes).
 
 </details>
 
@@ -296,10 +295,10 @@ Most of these are deliberate scope choices, not bugs. Know them before relying o
 - **No protection from a compromised deployment.** Decryption runs in JavaScript the server
   delivers, so a malicious or hacked host could serve code that leaks your key. In-browser E2E
   encryption trusts the origin ([`SECURITY.md`](./SECURITY.md) §4).
-- **Lose the link, lose the note.** No accounts — the id + key exist only in the URL you
-  share, and nobody, including you, can recover a lost link. For the admin page the server
-  does keep an owner-only metadata index (id, timestamps, view counts, notes), but it holds
-  no contents and no keys, so it cannot bring a note back.
+- **Lose the link, lose the note.** No accounts — the decryption key exists only in the
+  URL you share, and nobody, including you, can recover a lost link. For the admin page
+  the server does keep an owner-only metadata index (id, timestamps, view counts, notes),
+  but it holds no contents and no keys, so it cannot bring a note back.
 
 <details>
 <summary>More limitations</summary>
@@ -335,7 +334,7 @@ out in [`SECURITY.md`](./SECURITY.md) §3.
 <details>
 <summary>I lost the link — can the note be recovered?</summary>
 
-No. There are no accounts; the paste id and decryption key exist only in the URL. The
+No. There are no accounts; the decryption key exists only in the URL. The
 server's owner-only metadata index (timestamps, view counts, notes) holds no contents and no
 keys, so without the link the ciphertext is unrecoverable — by design.
 

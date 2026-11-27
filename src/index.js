@@ -86,7 +86,7 @@ export default {
         return err('Document does not exist, has expired or has been deleted.', 404);
       }
       if (request.method !== 'POST') return err('Method not allowed', 405, { allow: 'POST' });
-      return consumePaste(id, request, env);
+      return consumePaste(id, request, env, url.searchParams.get('ext') === '1');
     }
 
     const m = pathname.match(/^\/api\/paste\/([^/]+)$/);
@@ -99,7 +99,9 @@ export default {
       } catch {
         return err('Document does not exist, has expired or has been deleted.', 404);
       }
-      if (request.method === 'GET') return readPaste(id, env, url.searchParams.get('meta') === '1');
+      if (request.method === 'GET') {
+        return readPaste(id, env, url.searchParams.get('meta') === '1', url.searchParams.get('ext') === '1');
+      }
       if (request.method === 'DELETE') return deletePaste(id, request, env);
       return err('Method not allowed', 405, { allow: 'GET, DELETE' });
     }
@@ -269,7 +271,8 @@ async function createPaste(request, env, ctx) {
 
   // The stored/returned paste carries meta.created but never the token hash.
   // Server-only read fields (viewsLeft/expiresAt) are never taken from the
-  // client; the DO attaches them on peek/consume.
+  // client; the DO attaches them on peek/consume only when the caller opts
+  // in with ?ext=1 (legacy callers keep the exact upstream meta shape).
   const meta = { created, ttlSeconds: ttl, views };
   if (clean.meta.expire) meta.expire = clean.meta.expire;
   const paste = {
@@ -317,7 +320,7 @@ async function createPaste(request, env, ctx) {
   return json({ id, deletetoken: deleteToken }, 201);
 }
 
-async function readPaste(id, env, peekOnly) {
+async function readPaste(id, env, peekOnly, extended = false) {
   const info = parseId(id);
   if (!info) return err('Document does not exist, has expired or has been deleted.', 404);
 
@@ -327,7 +330,10 @@ async function readPaste(id, env, peekOnly) {
     // POST /api/paste/:id/consume (see consumePaste), so an ambient GET — an
     // <img> tag, a navigation prefetch, a link-scanning bot — can never destroy
     // a note whose id it happened to learn.
-    const res = await burnStub(env, id).peek();
+    // `?ext=1` opts into the fork's server-attached meta fields
+    // (viewsLeft/expiresAt); without it the head keeps the exact upstream
+    // shape so pre-fork clients don't reject the response.
+    const res = await burnStub(env, id).peek(extended);
     if (res.status === 'ok') return json(res.head, 200);
     return err('This document has used up its views, or has expired.', 410);
   }
@@ -348,7 +354,7 @@ async function readPaste(id, env, peekOnly) {
 // API sends no CORS headers, so the preflight fails and the consume never
 // happens. Fetch Metadata (when the browser provides it) rejects cross-site
 // senders outright as defense in depth. Non-browser clients just set the header.
-async function consumePaste(id, request, env) {
+async function consumePaste(id, request, env, extended = false) {
   if ((request.headers.get('x-burn-intent') || '').trim().toLowerCase() !== 'consume') {
     return err('Burn consumption requires the "X-Burn-Intent: consume" header.', 400);
   }
@@ -361,7 +367,7 @@ async function consumePaste(id, request, env) {
   if (!info) return err('Document does not exist, has expired or has been deleted.', 404);
   if (!info.burn) return err('Only burn-after-read pastes can be consumed.', 404);
 
-  const res = await burnStub(env, id).consume();
+  const res = await burnStub(env, id).consume(extended);
   if (res.status === 'ok') return json(res.paste, 200);
   return err('This document has used up its views, or has expired.', 410);
 }
@@ -436,9 +442,10 @@ async function deletePaste(id, request, env) {
 // Cross-device link management for the owner. Auth = the create token
 // (X-Create-Token vs CREATE_TOKEN_SHA256), fail-closed when unset, plus the
 // same per-IP rate limit as creation. The list is built from KV `idx:`
-// records (metadata only); burn pastes are peeked (never consumed) for the
-// live remaining-view count. Entries whose paste is already gone are
-// reported once with gone:true and their index record is pruned.
+// records (metadata only), one bounded page per request (cursor
+// pagination); burn pastes are peeked (never consumed) for the live
+// remaining-view count. Entries whose paste is already gone are reported
+// once with gone:true and their index record is pruned.
 
 async function adminList(request, env) {
   if (!(await adminAuthorized(request, env))) {
@@ -448,7 +455,16 @@ async function adminList(request, env) {
     return err('Rate limit exceeded. Try again shortly.', 429);
   }
 
-  const entries = await idxList(env);
+  // Bounded page + continuation cursor (KV list cursor, opaque to the
+  // client): each request lists/reads/peeks at most `limit` entries, so
+  // it stays inside the per-request KV operation budget however many
+  // links exist. The admin page follows the cursor until it is null.
+  const params = new URL(request.url).searchParams;
+  const rawLimit = Number(params.get('limit'));
+  const { entries, cursor } = await idxList(env, {
+    cursor: params.get('cursor') || undefined,
+    limit: Number.isInteger(rawLimit) && rawLimit > 0 ? rawLimit : undefined,
+  });
   const pastes = [];
   for (const { id, meta } of entries) {
     const info = parseId(id);
@@ -469,7 +485,7 @@ async function adminList(request, env) {
       continue;
     }
     if (info.burn) {
-      const res = await burnStub(env, id).peek();
+      const res = await burnStub(env, id).peek(true);
       if (res.status === 'ok') {
         pastes.push({ ...base, viewsLeft: res.head.meta.viewsLeft, gone: false });
       } else {
@@ -487,12 +503,13 @@ async function adminList(request, env) {
       }
     }
   }
-  // Newest first; same-second creates fall back to later expiry, then id,
-  // so the order is deterministic.
+  // Newest first within the page; same-second creates fall back to later
+  // expiry, then id, so the order is deterministic. (The admin page
+  // re-sorts the accumulated pages with the same comparator.)
   pastes.sort((a, b) => (b.createdAt - a.createdAt)
     || (b.expiresAt - a.expiresAt)
     || (a.id < b.id ? -1 : 1));
-  return json(pastes, 200);
+  return json({ pastes, cursor }, 200);
 }
 
 async function adminRevoke(request, env) {
@@ -564,8 +581,12 @@ async function adminNote(request, env) {
     return err('Document does not exist, has expired or has been deleted.', 404);
   }
   const note = sanitizeNote(parsed.note);
-  if (!(await idxUpdateNote(env, id, note))) {
+  const updated = await idxUpdateNote(env, id, note);
+  if (updated === 'notfound') {
     return err('Document does not exist, has expired or has been deleted.', 404);
+  }
+  if (updated === 'expiring') {
+    return err('This link expires in under a minute; its note can no longer be edited.', 409);
   }
   return json({ status: 'updated', id, note }, 200);
 }

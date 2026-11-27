@@ -67,7 +67,9 @@ function noteCell(p) {
     td.replaceChildren();
     const input = document.createElement('input');
     input.type = 'text';
-    input.maxLength = 100;
+    // No maxLength: the attribute counts UTF-16 code units while the
+    // server caps notes at 100 Unicode code points — the server-side
+    // truncation is authoritative, and its result is echoed back below.
     input.value = p.note || '';
     input.className = 'admin-note-input';
     input.setAttribute('aria-label', `Note for link ${p.id}`);
@@ -89,7 +91,9 @@ function noteCell(p) {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ id: p.id, note: input.value }),
         });
-        p.note = typeof data.note === 'string' ? data.note : input.value.trim().slice(0, 100);
+        p.note = typeof data.note === 'string'
+          ? data.note
+          : [...input.value.trim()].slice(0, 100).join('');
         show();
         setStatus('Note saved.');
       } catch (e) {
@@ -139,8 +143,25 @@ function render(pastes) {
 async function load() {
   setStatus('Loading…');
   try {
-    const pastes = await api('/api/admin/list');
-    if (!Array.isArray(pastes)) throw new Error('Malformed response.');
+    // The list endpoint returns one bounded page per request; follow the
+    // continuation cursor until it is null, then sort the accumulated
+    // entries newest-first (same comparator the server uses per page).
+    const pastes = [];
+    let cursor = null;
+    do {
+      const path = cursor
+        ? `/api/admin/list?cursor=${encodeURIComponent(cursor)}`
+        : '/api/admin/list';
+      const data = await api(path);
+      if (!data || !Array.isArray(data.pastes)) throw new Error('Malformed response.');
+      pastes.push(...data.pastes);
+      const next = typeof data.cursor === 'string' && data.cursor ? data.cursor : null;
+      if (next === cursor) throw new Error('Malformed response.'); // no-progress guard
+      cursor = next;
+    } while (cursor);
+    pastes.sort((a, b) => (b.createdAt - a.createdAt)
+      || (b.expiresAt - a.expiresAt)
+      || (a.id < b.id ? -1 : 1));
     render(pastes);
   } catch (e) {
     tableWrap.hidden = true;

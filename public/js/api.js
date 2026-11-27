@@ -67,9 +67,14 @@ export async function createPaste(body, createToken = '', note = '') {
   return { id: data.id, deletetoken: data.deletetoken };
 }
 
-/** Fetch a paste (never consumes — burn ids answer with their head). */
+/**
+ * Fetch a paste (never consumes — burn ids answer with their head).
+ * `?ext=1` opts into the server-attached meta fields (viewsLeft /
+ * expiresAt) this UI displays; legacy callers that omit it keep the exact
+ * upstream response shape.
+ */
 export async function fetchPaste(id) {
-  const res = await fetch(`/api/paste/${encodeURIComponent(id)}`, { cache: 'no-store' });
+  const res = await fetch(`/api/paste/${encodeURIComponent(id)}?ext=1`, { cache: 'no-store' });
   if (!res.ok) await throwHttpError(res, 'Not found.');
   return requireObject(await readJson(res));
 }
@@ -80,7 +85,7 @@ export async function fetchPaste(id) {
  * single destructive read.
  */
 export async function fetchPasteMeta(id) {
-  const res = await fetch(`/api/paste/${encodeURIComponent(id)}?meta=1`, { cache: 'no-store' });
+  const res = await fetch(`/api/paste/${encodeURIComponent(id)}?meta=1&ext=1`, { cache: 'no-store' });
   if (!res.ok) await throwHttpError(res, 'Not found.');
   return requireObject(await readJson(res));
 }
@@ -93,7 +98,7 @@ export async function fetchPasteMeta(id) {
 export async function consumePaste(id) {
   let url;
   try {
-    url = `/api/paste/${encodeURIComponent(id)}/consume`;
+    url = `/api/paste/${encodeURIComponent(id)}/consume?ext=1`;
   } catch {
     throw new ApiError('Could not prepare the consume request.', 0, 'not-sent');
   }
