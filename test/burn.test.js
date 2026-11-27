@@ -7,8 +7,15 @@ import { genDeleteToken, hashToken } from '../src/lib/ids.js';
 
 const ORIGIN = 'https://binthere.test';
 const JSON_CT = { 'content-type': 'application/json' };
+// Rotate the client IP per create: the suite creates more pastes than the
+// production per-IP rate limit (30/min) allows from a single address.
+let ipSeq = 0;
 const postPaste = (body) =>
-  SELF.fetch(`${ORIGIN}/api/paste`, { method: 'POST', headers: JSON_CT, body: JSON.stringify(body) });
+  SELF.fetch(`${ORIGIN}/api/paste`, {
+    method: 'POST',
+    headers: { ...JSON_CT, 'cf-connecting-ip': `203.0.113.${(ipSeq++ % 250) + 1}` },
+    body: JSON.stringify(body),
+  });
 const getPaste = (id) => SELF.fetch(`${ORIGIN}/api/paste/${id}`);
 const consume = (id, headers = { 'x-burn-intent': 'consume' }) =>
   SELF.fetch(`${ORIGIN}/api/paste/${id}/consume`, { method: 'POST', headers });
@@ -16,14 +23,65 @@ const deletePaste = (id, token) =>
   SELF.fetch(`${ORIGIN}/api/paste/${id}`, { method: 'DELETE', headers: { 'x-delete-token': token } });
 
 describe('supported paste lifecycle', () => {
-  it('rejects creation of reusable or custom-expiry pastes', async () => {
+  it('rejects non-burn pastes; legacy { expire } creates still work (1 view)', async () => {
     const { body } = await encryptPaste({ text: 'legacy settings' });
     body.adata.bar = false;
     expect((await postPaste(body)).status).toBe(400);
 
-    const { body: expiring } = await encryptPaste({ text: 'legacy expiry' });
+    // Old CLI shape: meta { expire: '1week' } → views=1, TTL from the enum.
+    const { body: expiring, fragment } = await encryptPaste({ text: 'legacy expiry' });
     expiring.meta.expire = '1week';
-    expect((await postPaste(expiring)).status).toBe(400);
+    const created = await postPaste(expiring);
+    expect(created.status).toBe(201);
+    const { id } = await created.json();
+    const head = await (await getPaste(id)).json();
+    expect(head.meta.viewsLeft).toBe(1);
+    expect(head.meta.expiresAt).toBeGreaterThan(Math.floor(Date.now() / 1000) + 600000);
+    const read = await consume(id);
+    expect(read.status).toBe(200);
+    expect((await decryptPaste({ paste: await read.json(), fragment })).text).toBe('legacy expiry');
+    expect((await consume(id)).status).toBe(410);
+  });
+
+  it('enforces view/TTL ranges server-side', async () => {
+    const tooMany = await encryptPaste({ text: 'x', views: 1001, ttlSeconds: 3600 });
+    expect((await postPaste(tooMany.body)).status).toBe(400);
+    const tooShort = await encryptPaste({ text: 'x', views: 1, ttlSeconds: 59 });
+    expect((await postPaste(tooShort.body)).status).toBe(400);
+    const tooLong = await encryptPaste({ text: 'x', views: 1, ttlSeconds: 2592001 });
+    expect((await postPaste(tooLong.body)).status).toBe(400);
+    const ok = await encryptPaste({ text: 'x', views: 1000, ttlSeconds: 2592000 });
+    expect((await postPaste(ok.body)).status).toBe(201);
+  });
+
+  it('owner create gate: 401 without/with wrong token, 201 with the right one', async () => {
+    const token = 'owner-test-token';
+    env.CREATE_TOKEN_SHA256 = await hashToken(token);
+    try {
+      const { body } = await encryptPaste({ text: 'gated' });
+      expect((await postPaste(body)).status).toBe(401);
+      const wrong = await SELF.fetch(`${ORIGIN}/api/paste`, {
+        method: 'POST',
+        headers: { ...JSON_CT, 'x-create-token': 'wrong-token' },
+        body: JSON.stringify(body),
+      });
+      expect(wrong.status).toBe(401);
+      const right = await SELF.fetch(`${ORIGIN}/api/paste`, {
+        method: 'POST',
+        headers: { ...JSON_CT, 'x-create-token': token },
+        body: JSON.stringify(body),
+      });
+      expect(right.status).toBe(201);
+      // Reads stay public for link holders.
+      const { id } = await right.json();
+      expect((await getPaste(id)).status).toBe(200);
+      expect((await consume(id)).status).toBe(200);
+    } finally {
+      delete env.CREATE_TOKEN_SHA256;
+    }
+    // Gate disabled again once the var is gone.
+    const { body: open } = await encryptPaste({ text: 'open again' });
+    expect((await postPaste(open)).status).toBe(201);
   });
 
   it('rejects deletion with the wrong token (403) and keeps the note', async () => {
@@ -110,6 +168,63 @@ describe('burn-after-read (Durable Object)', () => {
     expect((await stub.consume()).status).toBe('gone');
   });
 
+  it('multi-view: views=3 reads exactly 3 times, 4th is 410; peeks never spend', async () => {
+    const { body, fragment } = await encryptPaste({ text: 'thrice', views: 3, ttlSeconds: 3600 });
+    const { id } = await (await postPaste(body)).json();
+
+    // Plain GETs (previews/crawlers) return the head and spend nothing.
+    for (let i = 0; i < 3; i++) {
+      const head = await (await getPaste(id)).json();
+      expect(head.ct).toBeUndefined();
+      expect(head.meta.viewsLeft).toBe(3);
+    }
+
+    for (const leftAfter of [2, 1, 0]) {
+      const r = await consume(id);
+      expect(r.status).toBe(200);
+      const paste = await r.json();
+      expect(paste.meta.viewsLeft).toBe(leftAfter);
+      expect((await decryptPaste({ paste, fragment })).text).toBe('thrice');
+      if (leftAfter > 0) {
+        const head = await (await getPaste(id)).json();
+        expect(head.meta.viewsLeft).toBe(leftAfter);
+      }
+    }
+    expect((await consume(id)).status).toBe(410);
+    expect((await getPaste(id)).status).toBe(410);
+  });
+
+  it('multi-view concurrency: 10 simultaneous consumes of views=3 → exactly 3×200', async () => {
+    const { body } = await encryptPaste({ text: 'race3', views: 3, ttlSeconds: 3600 });
+    const { id } = await (await postPaste(body)).json();
+    const statuses = (await Promise.all(Array.from({ length: 10 }, () => consume(id))))
+      .map((r) => r.status);
+    expect(statuses.filter((s) => s === 200)).toHaveLength(3);
+    expect(statuses.filter((s) => s === 410)).toHaveLength(7);
+  });
+
+  it('custom TTL: DO alarm purges a multi-view paste at expiry', async () => {
+    const token = genDeleteToken();
+    const dth = await hashToken(token);
+    const paste = { v: 1, ct: 'AA', wk: 'AA', adata: {}, meta: { ttlSeconds: 120, views: 5, created: 0 } };
+    const stub = env.BURN.get(env.BURN.idFromName('bcustomttltest'));
+    await stub.create(paste, dth, 120, 5);
+    expect((await stub.peek()).head.meta.viewsLeft).toBe(5);
+    expect(await runDurableObjectAlarm(stub)).toBe(true);
+    expect((await stub.peek()).status).toBe('gone');
+    expect((await stub.consume()).status).toBe('gone');
+  });
+
+  it('revoke (delete token) works mid-budget on a multi-view paste', async () => {
+    const { body } = await encryptPaste({ text: 'revoke me', views: 5, ttlSeconds: 3600 });
+    const { id, deletetoken } = await (await postPaste(body)).json();
+    expect((await consume(id)).status).toBe(200); // 4 left
+    expect((await deletePaste(id, genDeleteToken())).status).toBe(403);
+    expect((await deletePaste(id, deletetoken)).status).toBe(200);
+    expect((await consume(id)).status).toBe(410);
+    expect((await getPaste(id)).status).toBe(410);
+  });
+
   it('delete via token works on a burn paste', async () => {
     const { body } = await encryptPaste({ text: 'burn+delete', bar: true });
     const { id, deletetoken } = await (await postPaste(body)).json();
@@ -138,29 +253,33 @@ describe('burn peek — verify password before the single read', () => {
 
   it('REGRESSION: a wrong/absent password on a burn paste does NOT consume it', async () => {
     const password = 'correct-horse-battery';
-    const { body, fragment } = await encryptPaste({ text: 'secret burn', bar: true, password });
+    const { body, fragment } = await encryptPaste({ text: 'secret burn', bar: true, password, views: 2, ttlSeconds: 3600 });
     const { id } = await (await postPaste(body)).json();
 
     const head = await (await getMeta(id)).json();
     expect(head.adata.kdf).toBe('pbkdf2-hkdf');
+    expect(head.meta.viewsLeft).toBe(2);
 
-    // Wrong password → verify throws, paste stays intact.
+    // Wrong password → verify throws, paste and view budget stay intact.
     await expect(deriveContentKey({ adata: head.adata, wk: head.wk, fragment, password: 'nope' }))
       .rejects.toBeInstanceOf(DecryptError);
     expect((await getMeta(id)).status).toBe(200);
+    expect((await (await getMeta(id)).json()).meta.viewsLeft).toBe(2);
 
     // No password → PasswordRequired, still intact.
     await expect(deriveContentKey({ adata: head.adata, wk: head.wk, fragment }))
       .rejects.toBeInstanceOf(PasswordRequired);
     expect((await getMeta(id)).status).toBe(200);
 
-    // Correct password verifies → THEN the single destructive read succeeds once.
+    // Correct password verifies → THEN a view is spent. Budget was 2, so one
+    // more read succeeds and the third is gone.
     await expect(deriveContentKey({ adata: head.adata, wk: head.wk, fragment, password }))
       .resolves.toBeTruthy();
     const read = await consume(id);
     expect(read.status).toBe(200);
     expect((await decryptPaste({ paste: await read.json(), fragment, password })).text).toBe('secret burn');
-    expect((await consume(id)).status).toBe(410); // burned only after being read
+    expect((await consume(id)).status).toBe(200); // second (last) view
+    expect((await consume(id)).status).toBe(410); // budget exhausted
   });
 });
 

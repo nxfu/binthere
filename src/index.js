@@ -7,9 +7,13 @@
 // burn-after-read semantics. See SPEC.md §10 for the API contract.
 
 import { recordPasteCreation, readPasteCreationCount } from './lib/statistics.js';
-import { validatePaste, FormatError, MAX_CT_B64 } from '../public/js/format.js';
+import { validatePaste, FormatError, MAX_CT_B64, EXPIRE_SECONDS } from '../public/js/format.js';
+import { timingSafeEqualHex } from '../public/js/bytes.js';
 import { genId, parseId, genDeleteToken, hashToken, verifyToken } from './lib/ids.js';
-import { PASTE_TTL_SECONDS, MAX_BODY, MAX_BURN_RECORD, kvGet, kvDelete, burnStub } from './lib/store.js';
+import {
+  MAX_BODY, MAX_BURN_RECORD, kvGet, kvDelete, burnStub,
+  idxPut, idxDelete, idxList, idxUpdateNote, sanitizeNote,
+} from './lib/store.js';
 import { allowCreate } from './lib/ratelimit.js';
 import { readStoredStars, updateStarCount, STARS_TTL, STARS_ERROR_TTL } from './lib/stars.js';
 
@@ -43,6 +47,23 @@ export default {
 
     if (pathname === '/api/paste') {
       if (request.method === 'POST') return createPaste(request, env, ctx);
+      return err('Method not allowed', 405, { allow: 'POST' });
+    }
+
+    // Owner admin (custom fork): cross-device list/revoke of created links.
+    // Same token gate as creation (X-Create-Token vs CREATE_TOKEN_SHA256).
+    if (pathname === '/api/admin/list') {
+      if (request.method === 'GET') return adminList(request, env);
+      return err('Method not allowed', 405, { allow: 'GET' });
+    }
+
+    if (pathname === '/api/admin/revoke') {
+      if (request.method === 'POST') return adminRevoke(request, env);
+      return err('Method not allowed', 405, { allow: 'POST' });
+    }
+
+    if (pathname === '/api/admin/note') {
+      if (request.method === 'POST') return adminNote(request, env);
       return err('Method not allowed', 405, { allow: 'POST' });
     }
 
@@ -124,6 +145,41 @@ async function readCappedBody(stream, max) {
   return out;
 }
 
+// Env-tunable create limits (custom fork). Non-numeric / non-positive values
+// fall back to the defaults so a typo'd var can never widen the limits.
+function envLimit(env, name, fallback) {
+  const n = Number.parseInt(env?.[name], 10);
+  return Number.isInteger(n) && n > 0 ? n : fallback;
+}
+
+// Owner-only creation gate (custom fork): when CREATE_TOKEN_SHA256 (hex of
+// the owner's create token) is set, POST /api/paste must present the token in
+// X-Create-Token. verifyToken handles generated 256-bit b64url tokens; for
+// free-form passphrases we fall back to the same SHA-256 + constant-time
+// compare primitives. Unset → gate disabled (local dev). Read/consume/delete
+// stay public: holding the link is the capability there.
+async function tokenMatches(request, expected) {
+  const presented = request.headers.get('x-create-token') || '';
+  if (!presented) return false;
+  if (await verifyToken(presented, expected)) return true;
+  return timingSafeEqualHex(await hashToken(presented), expected);
+}
+
+async function createAuthorized(request, env) {
+  const expected = String(env?.CREATE_TOKEN_SHA256 || '').trim().toLowerCase();
+  if (!expected) return true;
+  return tokenMatches(request, expected);
+}
+
+// Admin endpoints reuse the create-token check but FAIL CLOSED when the var
+// is unset: a deployment without a gate must not expose list/revoke to the
+// world just because creation is open (local dev included).
+async function adminAuthorized(request, env) {
+  const expected = String(env?.CREATE_TOKEN_SHA256 || '').trim().toLowerCase();
+  if (!expected) return false;
+  return tokenMatches(request, expected);
+}
+
 async function createPaste(request, env, ctx) {
   // Requiring a real JSON media type forces a CORS preflight for cross-origin
   // browser requests: a hostile page can no longer spend a visitor's creation
@@ -132,6 +188,10 @@ async function createPaste(request, env, ctx) {
   const contentType = (request.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
   if (contentType !== 'application/json') {
     return err('Content-Type must be application/json.', 415);
+  }
+
+  if (!(await createAuthorized(request, env))) {
+    return err('A valid create token is required.', 401);
   }
 
   if (!(await allowCreate(env, request))) {
@@ -166,38 +226,63 @@ async function createPaste(request, env, ctx) {
     return err('Document is too large.', 413);
   }
 
+  // Optional owner note (custom fork): a plain-text label for the admin
+  // list, carried BESIDE the paste in the request JSON. It is extracted
+  // before format validation — the frozen v1 paste shape (exact keys,
+  // AAD) never sees it — and stored only in the admin index.
+  let pasteInput = parsed;
+  let rawNote;
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    ({ note: rawNote, ...pasteInput } = parsed);
+  }
+  const note = sanitizeNote(rawNote);
+
   let clean;
   try {
-    clean = validatePaste(parsed);
+    clean = validatePaste(pasteInput);
   } catch (e) {
     if (e instanceof FormatError) return err(e.message, 400);
     throw e;
   }
 
-  // The supported product lifecycle is fixed: every newly-created paste is
-  // one-time view and expires after 24 hours. Legacy values remain readable,
-  // but cannot be used to create new records.
-  if (!clean.adata.bar || clean.meta.expire !== '1day') {
-    return err('New pastes must be one-time view and expire after 24 hours.', 400);
+  // Custom lifecycle: every new paste is burn-after-read (bar) with a
+  // free-form view budget and TTL. Legacy { expire } creates (CLI) map to
+  // views=1 and the enum's TTL. Ranges are enforced here, server-side.
+  if (!clean.adata.bar) {
+    return err('New pastes must be burn-after-read.', 400);
+  }
+  const maxViews = envLimit(env, 'MAX_VIEWS', 1000);
+  const maxTtl = envLimit(env, 'MAX_TTL_SECONDS', 2592000);
+  const minTtl = envLimit(env, 'MIN_TTL_SECONDS', 60);
+  const ttl = clean.meta.ttlSeconds ?? EXPIRE_SECONDS[clean.meta.expire];
+  const views = clean.meta.views ?? 1;
+  if (!Number.isInteger(ttl) || ttl < minTtl || ttl > maxTtl) {
+    return err(`ttlSeconds must be between ${minTtl} and ${maxTtl}.`, 400);
+  }
+  if (!Number.isInteger(views) || views < 1 || views > maxViews) {
+    return err(`views must be between 1 and ${maxViews}.`, 400);
   }
 
-  const ttl = PASTE_TTL_SECONDS;
   const deleteToken = genDeleteToken();
   const dth = await hashToken(deleteToken);
   const created = Math.floor(Date.now() / 1000);
 
   // The stored/returned paste carries meta.created but never the token hash.
+  // Server-only read fields (viewsLeft/expiresAt) are never taken from the
+  // client; the DO attaches them on peek/consume.
+  const meta = { created, ttlSeconds: ttl, views };
+  if (clean.meta.expire) meta.expire = clean.meta.expire;
   const paste = {
     v: clean.v, ct: clean.ct, wk: clean.wk, adata: clean.adata,
-    meta: { expire: clean.meta.expire, created },
+    meta,
   };
 
   // Burn records live in SQLite-backed DO storage, whose ~2 MB per-value limit
   // is below what MAX_CT_B64 admits: a valid-per-format record between the two
   // caps would make storage.put throw an uncaught 500 inside the DO. Reject it
   // here with a clean 413 instead (SPEC §6).
-  if (JSON.stringify({ paste, dth, exp: 0 }).length > MAX_BURN_RECORD) {
-    return err('Document is too large for a one-time-view paste.', 413);
+  if (JSON.stringify({ paste, dth, exp: 0, viewsLeft: views }).length > MAX_BURN_RECORD) {
+    return err('Document is too large for a burn-after-read paste.', 413);
   }
 
   // New pastes always use the burn Durable Object. Legacy KV records remain
@@ -205,9 +290,25 @@ async function createPaste(request, env, ctx) {
   let id;
   for (let attempt = 0; ; attempt++) {
     id = genId();
-    if (await burnStub(env, id).create(paste, dth, ttl)) break;
+    if (await burnStub(env, id).create(paste, dth, ttl, views)) break;
     if (attempt >= 4) return err('Could not allocate a paste id, please retry.', 500);
   }
+
+  // Admin index (custom fork): metadata only, TTL matched to the paste.
+  // Best-effort — the paste already exists in the DO, so an index write
+  // failure must not fail creation; the link simply won't show in /admin.
+  // The optional note is the one plain-text field (owner's request); the
+  // key is omitted entirely when empty so old/new records read uniformly.
+  try {
+    const idxMeta = {
+      createdAt: created,
+      expiresAt: created + ttl,
+      viewsTotal: views,
+      kind: 'burn',
+    };
+    if (note) idxMeta.note = note;
+    await idxPut(env, id, idxMeta, ttl);
+  } catch { /* index is advisory; creation already succeeded */ }
 
   // Count only after the paste Durable Object confirms its successful write.
   // The statistics path receives neither this paste's ID nor any paste data.
@@ -228,7 +329,7 @@ async function readPaste(id, env, peekOnly) {
     // a note whose id it happened to learn.
     const res = await burnStub(env, id).peek();
     if (res.status === 'ok') return json(res.head, 200);
-    return err('This document was single-use and has already been read, or has expired.', 410);
+    return err('This document has used up its views, or has expired.', 410);
   }
 
   const rec = await kvGet(env, id);
@@ -258,11 +359,11 @@ async function consumePaste(id, request, env) {
 
   const info = parseId(id);
   if (!info) return err('Document does not exist, has expired or has been deleted.', 404);
-  if (!info.burn) return err('Only one-time-view pastes can be consumed.', 404);
+  if (!info.burn) return err('Only burn-after-read pastes can be consumed.', 404);
 
   const res = await burnStub(env, id).consume();
   if (res.status === 'ok') return json(res.paste, 200);
-  return err('This document was single-use and has already been read, or has expired.', 410);
+  return err('This document has used up its views, or has expired.', 410);
 }
 
 // The repository's daily star-count snapshot for the topbar badge. Visitors
@@ -311,7 +412,11 @@ async function deletePaste(id, request, env) {
 
   if (info.burn) {
     const res = await burnStub(env, id).remove(token);
-    if (res.status === 'ok') return json({ status: 'deleted', id }, 200);
+    if (res.status === 'ok') {
+      // Keep the admin index consistent (best-effort; list also prunes).
+      try { await idxDelete(env, id); } catch { /* advisory */ }
+      return json({ status: 'deleted', id }, 200);
+    }
     if (res.status === 'bad') return err('Wrong deletion token. Document was not deleted.', 403);
     return err('Document does not exist, has expired or has been deleted.', 404);
   }
@@ -322,5 +427,145 @@ async function deletePaste(id, request, env) {
     return err('Wrong deletion token. Document was not deleted.', 403);
   }
   await kvDelete(env, id);
+  try { await idxDelete(env, id); } catch { /* advisory */ }
   return json({ status: 'deleted', id }, 200);
+}
+
+// ── Owner admin (custom fork) ────────────────────────────────────────────────
+//
+// Cross-device link management for the owner. Auth = the create token
+// (X-Create-Token vs CREATE_TOKEN_SHA256), fail-closed when unset, plus the
+// same per-IP rate limit as creation. The list is built from KV `idx:`
+// records (metadata only); burn pastes are peeked (never consumed) for the
+// live remaining-view count. Entries whose paste is already gone are
+// reported once with gone:true and their index record is pruned.
+
+async function adminList(request, env) {
+  if (!(await adminAuthorized(request, env))) {
+    return err('A valid create token is required.', 401);
+  }
+  if (!(await allowCreate(env, request))) {
+    return err('Rate limit exceeded. Try again shortly.', 429);
+  }
+
+  const entries = await idxList(env);
+  const pastes = [];
+  for (const { id, meta } of entries) {
+    const info = parseId(id);
+    const base = {
+      id,
+      createdAt: Number.isInteger(meta?.createdAt) ? meta.createdAt : 0,
+      expiresAt: Number.isInteger(meta?.expiresAt) ? meta.expiresAt : 0,
+      viewsTotal: Number.isInteger(meta?.viewsTotal) ? meta.viewsTotal : 0,
+      kind: meta?.kind === 'kv' ? 'kv' : 'burn',
+      // Owner label, plain text by design. Records written before notes
+      // existed have no key → ''.
+      note: typeof meta?.note === 'string' ? meta.note : '',
+    };
+    if (!info || !meta) {
+      // Corrupt/foreign index record: report gone once and prune it.
+      try { await idxDelete(env, id); } catch { /* advisory */ }
+      pastes.push({ ...base, viewsLeft: 0, gone: true });
+      continue;
+    }
+    if (info.burn) {
+      const res = await burnStub(env, id).peek();
+      if (res.status === 'ok') {
+        pastes.push({ ...base, viewsLeft: res.head.meta.viewsLeft, gone: false });
+      } else {
+        try { await idxDelete(env, id); } catch { /* advisory */ }
+        pastes.push({ ...base, viewsLeft: 0, gone: true });
+      }
+    } else {
+      // Legacy KV pastes are reusable (reads don't spend views).
+      const rec = await kvGet(env, id);
+      if (rec) {
+        pastes.push({ ...base, viewsLeft: base.viewsTotal, gone: false });
+      } else {
+        try { await idxDelete(env, id); } catch { /* advisory */ }
+        pastes.push({ ...base, viewsLeft: 0, gone: true });
+      }
+    }
+  }
+  // Newest first; same-second creates fall back to later expiry, then id,
+  // so the order is deterministic.
+  pastes.sort((a, b) => (b.createdAt - a.createdAt)
+    || (b.expiresAt - a.expiresAt)
+    || (a.id < b.id ? -1 : 1));
+  return json(pastes, 200);
+}
+
+async function adminRevoke(request, env) {
+  const contentType = (request.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+  if (contentType !== 'application/json') {
+    return err('Content-Type must be application/json.', 415);
+  }
+  if (!(await adminAuthorized(request, env))) {
+    return err('A valid create token is required.', 401);
+  }
+  if (!(await allowCreate(env, request))) {
+    return err('Rate limit exceeded. Try again shortly.', 429);
+  }
+
+  const bytes = await readCappedBody(request.body, MAX_BODY);
+  if (bytes === null) return err('Document is too large.', 413);
+  let parsed;
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    return err('Invalid JSON body.', 400);
+  }
+  const id = parsed && typeof parsed === 'object' ? parsed.id : null;
+  const info = typeof id === 'string' ? parseId(id) : null;
+  if (!info) return err('Document does not exist, has expired or has been deleted.', 404);
+
+  let existed = false;
+  if (info.burn) {
+    const res = await burnStub(env, id).destroy();
+    existed = res.status === 'ok';
+  } else {
+    existed = (await kvGet(env, id)) !== null;
+    if (existed) await kvDelete(env, id);
+  }
+  // Always drop the index record; a paste that was already gone is a 404
+  // (the revoke goal is met, but there was nothing left to revoke).
+  try { await idxDelete(env, id); } catch { /* advisory */ }
+  if (!existed) return err('Document does not exist, has expired or has been deleted.', 404);
+  return json({ status: 'revoked', id }, 200);
+}
+
+// Set/replace the plain-text owner note on one index record. Touches ONLY
+// the `idx:` record — the paste (DO/KV) is never read or modified, so a
+// note edit can never spend a view or resurrect a gone paste. Same gate
+// and rate limit as the other admin endpoints; unknown id (no index
+// record) is a 404.
+async function adminNote(request, env) {
+  const contentType = (request.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+  if (contentType !== 'application/json') {
+    return err('Content-Type must be application/json.', 415);
+  }
+  if (!(await adminAuthorized(request, env))) {
+    return err('A valid create token is required.', 401);
+  }
+  if (!(await allowCreate(env, request))) {
+    return err('Rate limit exceeded. Try again shortly.', 429);
+  }
+
+  const bytes = await readCappedBody(request.body, MAX_BODY);
+  if (bytes === null) return err('Document is too large.', 413);
+  let parsed;
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    return err('Invalid JSON body.', 400);
+  }
+  const id = parsed && typeof parsed === 'object' ? parsed.id : null;
+  if (typeof id !== 'string' || !parseId(id)) {
+    return err('Document does not exist, has expired or has been deleted.', 404);
+  }
+  const note = sanitizeNote(parsed.note);
+  if (!(await idxUpdateNote(env, id, note))) {
+    return err('Document does not exist, has expired or has been deleted.', 404);
+  }
+  return json({ status: 'updated', id, note }, 200);
 }

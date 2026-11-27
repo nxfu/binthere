@@ -49,6 +49,9 @@ namespace_id = "1001"
 # ── Observability ────────────────────────────────────────────────────────────
 [vars]
 GITHUB_REPOSITORY = "nxfu/binthere"
+MAX_VIEWS = "1000"
+MAX_TTL_SECONDS = "2592000"
+MIN_TTL_SECONDS = "60"
 
 # Refresh the stored GitHub star count once per day at 00:00 UTC.
 [triggers]
